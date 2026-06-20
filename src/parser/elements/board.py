@@ -1,5 +1,61 @@
+import numpy as np
+
+
 class Cell():
-    pass
+
+    def __init__(self, x_left, x_right, y_up, y_down, row=None, col=None):
+        self.x_left = x_left
+        self.x_right = x_right
+        self.y_up = y_up
+        self.y_down = y_down
+        self.row = row
+        self.col = col
+        self.value = 0  # pieza (vacío por ahora)
+
+    def __repr__(self):
+        return (f"Cell[{self.row},{self.col}] "
+                f"x=({self.x_left},{self.x_right}) y=({self.y_up},{self.y_down}) "
+                f"value={self.value}")
+
+
+
 
 class Board():
-    pass
+
+    def __init__(self, imagen_rectificada):
+        self.imagen = imagen_rectificada #imagen hsv
+        lado = imagen_rectificada.shape[0]
+        self.tam_celda = lado / 8
+        self.celdas = self._construir_celdas()
+        self.matriz = np.zeros((8, 8), dtype=int)
+
+        
+
+    def _construir_celdas(self):
+        celdas = []
+        for fila in range(8):
+            fila_celdas = []
+            for col in range(8):
+                x1 = int(col * self.tam_celda)
+                y1 = int(fila * self.tam_celda)
+                x2 = int((col + 1) * self.tam_celda)
+                y2 = int((fila + 1) * self.tam_celda)
+                celda = Cell(x1, x2, y1, y2, row=fila, col=col)
+                fila_celdas.append(celda)
+            celdas.append(fila_celdas)
+        return celdas
+
+    def dibujar(self, img=None):
+        import cv2
+        if img is None:
+            img = self.imagen.copy()
+        for fila in self.celdas:
+            for celda in fila:
+                cv2.rectangle(
+                    img,
+                    (celda.x_left, celda.y_up),
+                    (celda.x_right, celda.y_down),
+                    (255, 0, 0),
+                    2
+                )
+        return cv2.cvtColor(img, cv2.COLOR_HSV2RGB)

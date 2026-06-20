@@ -1,1 +1,0 @@
-#scripts donde almacenaremos toda la logica de las piezas
