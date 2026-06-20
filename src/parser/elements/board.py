@@ -19,7 +19,6 @@ class Cell():
 
 
 
-
 class Board():
 
     def __init__(self, imagen_rectificada):
@@ -30,7 +29,6 @@ class Board():
         self.matriz = np.zeros((8, 8), dtype=int)
 
         
-
     def _construir_celdas(self):
         celdas = []
         for fila in range(8):

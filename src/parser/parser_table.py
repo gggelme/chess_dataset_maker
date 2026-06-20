@@ -33,9 +33,14 @@ class ParserTable:
         )
         contornos = sorted(contornos, key=cv2.contourArea, reverse=True)
 
-        for c in contornos:
-            perimetro = cv2.arcLength(c, True)
-            approx = cv2.approxPolyDP(c, 0.02 * perimetro, True)
+        if len(contornos) > 0:
+            c_mas_grande = contornos[0]
+            hull = cv2.convexHull(c_mas_grande)
+            
+            perimetro = cv2.arcLength(hull, True)
+            # Aumentamos la tolerancia a 0.04
+            approx = cv2.approxPolyDP(hull, 0.04 * perimetro, True)
+            
             if len(approx) == 4:
                 self.esquinas = approx
                 return approx
@@ -144,7 +149,7 @@ if __name__ == "__main__":
 
     # rutas relativas al archivo
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_horizontal_2.jpg")
+    ruta = os.path.join(BASE, "../../data/raw/tablero_horizontal.jpg")
 
     parser = ParserTable(ruta)
 
