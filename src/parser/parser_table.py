@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     # rutas relativas al archivo
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_horizontal_2.jpg")
+    ruta = os.path.join(BASE, "../../data/raw/tablero_inclinado_4.jpg")
 
     parser = ParserTable(ruta)
 
