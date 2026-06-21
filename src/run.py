@@ -2,7 +2,7 @@ import cv2
 import os
 
 def main():
-    ruta_video = '../data/raw/chess_cut.mp4'
+    ruta_video = '../../../data/raw/Prueba1.mp4'
     if not os.path.exists(ruta_video):
         print(f"❌ Error: No se encontró el archivo en la ruta: {os.path.abspath(ruta_video)}")
         return
