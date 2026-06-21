@@ -123,7 +123,7 @@ class ParserTable:
         self.detect_board_corners()
         self.correct_perspective(lado)
         self.standardize_orientation()
-        return Board(self.tablero_hsv)
+        return Board(nueva_partida=False, imagen_rectificada=self.tablero_hsv)
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -173,7 +173,7 @@ if __name__ == "__main__":
     sys.path.insert(0, BASE)
     from elements.board import Board
 
-    board = Board(tablero_orientado_hsv)
+    board = Board(nueva_partida=False, imagen_rectificada=tablero_orientado_hsv)
     print("\nMatriz del tablero (8×8):")
     print(board.matriz)
     print(f"\nCelda [0][0]: {board.celdas[0][0]}")

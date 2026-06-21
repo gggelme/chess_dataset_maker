@@ -1,7 +1,12 @@
+import sys
+import os
 import numpy as np
 
+sys.path.insert(0, os.path.dirname(__file__))
+from pieces import Pawn, Knight, Bishop, Rook, King, Queen
 
-class Cell():
+
+class Cell:
 
     def __init__(self, x_left, x_right, y_up, y_down, row=None, col=None):
         self.x_left = x_left
@@ -10,7 +15,7 @@ class Cell():
         self.y_down = y_down
         self.row = row
         self.col = col
-        self.value = 0  # pieza (vacío por ahora)
+        self.value = 0
 
     def __repr__(self):
         return (f"Cell[{self.row},{self.col}] "
@@ -18,17 +23,52 @@ class Cell():
                 f"value={self.value}")
 
 
+class Board:
 
-class Board():
+    # peon=1  caballo=2  alfil=3  torre=4  rey=5  reina=6
+    _CLASE_POR_VALOR = {
+        1: Pawn, 2: Knight, 3: Bishop,
+        4: Rook, 5: King,  6: Queen,
+    }
 
-    def __init__(self, imagen_rectificada):
-        self.imagen = imagen_rectificada #imagen hsv
-        lado = imagen_rectificada.shape[0]
-        self.tam_celda = lado / 8
-        self.celdas = self._construir_celdas()
+    def __init__(self, nueva_partida: bool, imagen_rectificada=None):
+        self.imagen = imagen_rectificada  # imagen HSV (puede ser None)
+
+        if imagen_rectificada is not None:
+            lado = imagen_rectificada.shape[0]
+            self.tam_celda = lado / 8
+            self.celdas = self._construir_celdas()
+        else:
+            self.tam_celda = None
+            self.celdas = None
+
         self.matriz = np.zeros((8, 8), dtype=int)
+        self.piezas = [[None] * 8 for _ in range(8)]
 
-        
+        if nueva_partida:
+            self.posicion_inicial = [
+                [ 4,  2,  3,  6,  5,  3,  2,  4],  # fila 0 – back rank blancas
+                [ 1,  1,  1,  1,  1,  1,  1,  1],  # fila 1 – peones blancos
+                [ 0,  0,  0,  0,  0,  0,  0,  0],
+                [ 0,  0,  0,  0,  0,  0,  0,  0],
+                [ 0,  0,  0,  0,  0,  0,  0,  0],
+                [ 0,  0,  0,  0,  0,  0,  0,  0],
+                [-1, -1, -1, -1, -1, -1, -1, -1],  # fila 6 – peones negros
+                [-4, -2, -3, -6, -5, -3, -2, -4],  # fila 7 – back rank negras
+            ]
+            self._inicializar_piezas()
+        # else: partida en curso → lógica de detección por imagen (a implementar)
+
+    def _inicializar_piezas(self):
+        for fila in range(8):
+            for col in range(8):
+                valor = self.posicion_inicial[fila][col]
+                self.matriz[fila][col] = valor
+                if valor != 0:
+                    color = 'blanco' if valor > 0 else 'negro'
+                    clase = self._CLASE_POR_VALOR[abs(valor)]
+                    self.piezas[fila][col] = clase(color, fila, col)
+
     def _construir_celdas(self):
         celdas = []
         for fila in range(8):
@@ -57,3 +97,6 @@ class Board():
                     2
                 )
         return cv2.cvtColor(img, cv2.COLOR_HSV2RGB)
+
+    def _repr_(self):
+        return self.matriz
