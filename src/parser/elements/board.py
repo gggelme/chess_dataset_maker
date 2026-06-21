@@ -31,8 +31,11 @@ class Board:
         4: Rook, 5: King,  6: Queen,
     }
 
-    def __init__(self, nueva_partida: bool, imagen_rectificada=None):
+    def __init__(self, nueva_partida: bool, imagen_rectificada=None,
+                 y_pos=None, x_pos=None):
         self.imagen = imagen_rectificada  # imagen HSV (puede ser None)
+        self.y_pos  = y_pos               # 9 límites de filas   (Hough)
+        self.x_pos  = x_pos               # 9 límites de columnas (Hough)
 
         if imagen_rectificada is not None:
             lado = imagen_rectificada.shape[0]
@@ -71,17 +74,27 @@ class Board:
 
     def _construir_celdas(self):
         celdas = []
+        usar_hough = self.y_pos is not None and self.x_pos is not None
         for fila in range(8):
             fila_celdas = []
             for col in range(8):
-                x1 = int(col * self.tam_celda)
-                y1 = int(fila * self.tam_celda)
-                x2 = int((col + 1) * self.tam_celda)
-                y2 = int((fila + 1) * self.tam_celda)
+                if usar_hough:
+                    y1, y2 = self.y_pos[fila], self.y_pos[fila + 1]
+                    x1, x2 = self.x_pos[col],  self.x_pos[col  + 1]
+                else:
+                    x1 = int(col  * self.tam_celda)
+                    y1 = int(fila * self.tam_celda)
+                    x2 = int((col  + 1) * self.tam_celda)
+                    y2 = int((fila + 1) * self.tam_celda)
                 celda = Cell(x1, x2, y1, y2, row=fila, col=col)
                 fila_celdas.append(celda)
             celdas.append(fila_celdas)
         return celdas
+
+    def get_imagen_celda(self, fila, col):
+        """Sub-imagen HSV de la celda [fila][col]."""
+        c = self.celdas[fila][col]
+        return self.imagen[c.y_up:c.y_down, c.x_left:c.x_right]
 
     def dibujar(self, img=None):
         import cv2
