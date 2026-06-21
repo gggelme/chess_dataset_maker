@@ -34,7 +34,7 @@ class Pawn:
 
     def obtener_movimientos_validos(self, piezas, en_passant_col=None):
         movimientos = []
-        direccion = 1 if self.color == 'blanco' else -1
+        direccion = -1 if self.color == 'blanco' else 1
         nueva_fila = self.row + direccion
 
         # avance recto (solo a casilla vacía)
@@ -81,7 +81,7 @@ class Pawn:
         self.primer_mov = False
 
         # Promoción: peón llega a la última fila del bando rival
-        fila_final = 7 if self.color == 'blanco' else 0
+        fila_final = 0 if self.color == 'blanco' else 7
         if self.row == fila_final:
             clase = promocion if promocion is not None else Queen
             nueva_pieza = clase(self.color, self.row, self.col)

@@ -47,14 +47,14 @@ class Board:
 
         if nueva_partida:
             self.posicion_inicial = [
-                [ 4,  2,  3,  6,  5,  3,  2,  4],  # fila 0 – back rank blancas
-                [ 1,  1,  1,  1,  1,  1,  1,  1],  # fila 1 – peones blancos
+                [-4, -2, -3, -6, -5, -3, -2, -4],  # fila 0 – back rank negras (arriba)
+                [-1, -1, -1, -1, -1, -1, -1, -1],  # fila 1 – peones negros
                 [ 0,  0,  0,  0,  0,  0,  0,  0],
                 [ 0,  0,  0,  0,  0,  0,  0,  0],
                 [ 0,  0,  0,  0,  0,  0,  0,  0],
                 [ 0,  0,  0,  0,  0,  0,  0,  0],
-                [-1, -1, -1, -1, -1, -1, -1, -1],  # fila 6 – peones negros
-                [-4, -2, -3, -6, -5, -3, -2, -4],  # fila 7 – back rank negras
+                [ 1,  1,  1,  1,  1,  1,  1,  1],  # fila 6 – peones blancos
+                [ 4,  2,  3,  6,  5,  3,  2,  4],  # fila 7 – back rank blancas (abajo)
             ]
             self._inicializar_piezas()
         # else: partida en curso → lógica de detección por imagen (a implementar)

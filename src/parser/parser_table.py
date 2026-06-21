@@ -98,15 +98,15 @@ class ParserTable:
         if diff_vertical >= diff_horizontal:
             # El eje relevante es vertical (arriba/abajo)
             if media_arriba > media_abajo:
-                rotacion = None            # blancas arriba, negras abajo → correcto
+                rotacion = cv2.ROTATE_180  # blancas arriba → rotar 180 para bajar
             else:
-                rotacion = cv2.ROTATE_180  # negras arriba → dar vuelta
+                rotacion = None            # blancas abajo → correcto, no hacer nada
         else:
             # El eje relevante es horizontal (izquierda/derecha)
             if media_izq > media_der:
-                rotacion = cv2.ROTATE_90_CLOCKWISE         # blancas a la izq → rotamos CW: izq→arriba
+                rotacion = cv2.ROTATE_90_COUNTERCLOCKWISE  # blancas a la izq → rotar Antihorario (izq baja)
             else:
-                rotacion = cv2.ROTATE_90_COUNTERCLOCKWISE  # blancas a la der → rotamos CCW: der→arriba
+                rotacion = cv2.ROTATE_90_CLOCKWISE         # blancas a la der → rotar Horario (der baja)
 
         if rotacion is not None:
             self.tablero_hsv = cv2.rotate(self.tablero_hsv, rotacion)
@@ -149,7 +149,7 @@ if __name__ == "__main__":
 
     # rutas relativas al archivo
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_horizontal.jpg")
+    ruta = os.path.join(BASE, "../../data/raw/tablero_horizontal_2.jpg")
 
     parser = ParserTable(ruta)
 
