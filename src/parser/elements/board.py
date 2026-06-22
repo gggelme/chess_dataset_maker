@@ -33,6 +33,7 @@ class Board:
 
     def __init__(self, nueva_partida: bool, imagen_rectificada=None,
                  y_pos=None, x_pos=None):
+        print("Board creado", id(self))
         self.imagen = imagen_rectificada  # imagen HSV (puede ser None)
         self.y_pos  = y_pos               # 9 límites de filas   (Hough)
         self.x_pos  = x_pos               # 9 límites de columnas (Hough)
@@ -49,6 +50,7 @@ class Board:
         self.piezas = [[None] * 8 for _ in range(8)]
 
         if nueva_partida:
+            self.turno = 'blanco'
             self.posicion_inicial = [
                 [-4, -2, -3, -6, -5, -3, -2, -4],  # fila 0 – back rank negras (arriba)
                 [-1, -1, -1, -1, -1, -1, -1, -1],  # fila 1 – peones negros
@@ -63,6 +65,7 @@ class Board:
         # else: partida en curso → lógica de detección por imagen (a implementar)
 
     def _inicializar_piezas(self):
+        print("Inicializando piezas")
         for fila in range(8):
             for col in range(8):
                 valor = self.posicion_inicial[fila][col]
@@ -91,6 +94,33 @@ class Board:
             celdas.append(fila_celdas)
         return celdas
 
+    def mover(self, origen, destino):
+
+        fila_o, col_o = origen
+        fila_d, col_d = destino
+
+        pieza = self.piezas[fila_o][col_o]
+
+        if pieza is None:
+            raise ValueError(
+                f"No hay pieza en {origen}"
+            )
+
+        pieza.mover(
+            fila_d,
+            col_d,
+            self.piezas
+        )
+
+        self.matriz[fila_o][col_o] = 0
+        self.matriz[fila_d][col_d] = pieza.valor
+
+        self.turno = (
+            "negro"
+            if self.turno == "blanco"
+            else "blanco"
+        )
+
     def get_imagen_celda(self, fila, col):
         """Sub-imagen HSV de la celda [fila][col]."""
         c = self.celdas[fila][col]
@@ -113,3 +143,23 @@ class Board:
 
     def _repr_(self):
         return self.matriz
+    
+if __name__ == "__main__":
+
+    tablero = Board(nueva_partida=True)
+
+    print("\nPosición inicial:")
+    print(tablero.matriz)
+
+    print("\nTurno:", tablero.turno)
+
+    # e2 -> e4
+    tablero.mover(
+        origen=(6, 4),
+        destino=(4, 4)
+    )
+
+    print("\nDespués de mover el peón:")
+    print(tablero.matriz)
+
+    print("\nTurno:", tablero.turno)
