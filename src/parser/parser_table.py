@@ -4,6 +4,8 @@ import os
 import numpy as np
 import cv2
 
+# python src/parser/parser_table.py
+
 
 # ── Hough helpers (module-level) ─────────────────────────────────────────────
 
@@ -106,10 +108,28 @@ class ParserTable:
 
     LADO_DESTINO = 800
 
-    def __init__(self, ruta: str):
-        self.ruta = ruta
-        self._imagen_bgr  = None
-        self._imagen_gris = None
+    def __init__(self, fuente):
+        if isinstance(fuente, str):
+            self._imagen_bgr = cv2.imread(fuente)
+            if self._imagen_bgr is None:
+                raise FileNotFoundError(f"No se pudo cargar: {fuente}")
+            self._imagen_gris = cv2.cvtColor(self._imagen_bgr, cv2.COLOR_BGR2GRAY)
+            
+        elif isinstance(fuente, np.ndarray):
+            # Si llega una imagen en escala de grises (2 dimensiones)
+            if len(fuente.shape) == 2:
+                self._imagen_gris = fuente
+                self._imagen_bgr = cv2.cvtColor(fuente, cv2.COLOR_GRAY2BGR)
+            # Si llega una imagen a color (BGR)
+            else:
+                self._imagen_bgr = fuente
+                self._imagen_gris = cv2.cvtColor(fuente, cv2.COLOR_BGR2GRAY)
+        else:
+            raise TypeError("La entrada debe ser una ruta (str) o una imagen (np.ndarray).")
+
+        # Generar HSV en el constructor independientemente del tipo de entrada
+        self._imagen_hsv = cv2.cvtColor(self._imagen_bgr, cv2.COLOR_BGR2HSV)
+
         self.esquinas    = None   # (4,1,2) – salida cruda de approxPolyDP
         self.tablero_hsv = None   # imagen rectificada + orientada en HSV
         self.y_pos = None         # 9 límites de filas  (Hough)
@@ -119,9 +139,7 @@ class ParserTable:
 
     def detect_board_corners(self):
         """Blur → Canny → cierre morfológico → contornos → polígono de 4 esquinas."""
-        gris = self._get_gris()
-
-        desenfocado = cv2.GaussianBlur(gris, (5, 5), 0)
+        desenfocado = cv2.GaussianBlur(self._imagen_gris, (5, 5), 0)
         bordes = cv2.Canny(desenfocado, 50, 150)
 
         kernel = np.ones((5, 5), np.uint8)
@@ -158,8 +176,8 @@ class ParserTable:
         ], dtype=np.float32)
 
         H = cv2.getPerspectiveTransform(pts_origen, pts_destino)
-        imagen_hsv = cv2.cvtColor(self._get_bgr(), cv2.COLOR_BGR2HSV)
-        self.tablero_hsv = cv2.warpPerspective(imagen_hsv, H, (lado, lado))
+        # Transformar directamente la imagen HSV generada en el constructor
+        self.tablero_hsv = cv2.warpPerspective(self._imagen_hsv, H, (lado, lado))
         return self.tablero_hsv
 
     # ── Paso 3: estandarizar orientación ────────────────────────────────────
@@ -195,15 +213,11 @@ class ParserTable:
     # ── Paso 4: detectar grilla con Hough ───────────────────────────────────
 
     def detect_grid_lines(self):
-        """Aplica Hough sobre la imagen orientada → devuelve (y_pos, x_pos).
-
-        y_pos: lista de 9 enteros con los límites verticales (filas).
-        x_pos: lista de 9 enteros con los límites horizontales (columnas).
-        """
+        """Aplica Hough sobre la imagen orientada → devuelve (y_pos, x_pos)."""
         if self.tablero_hsv is None:
             self.standardize_orientation()
 
-        gray = cv2.cvtColor(self.tablero_hsv, cv2.COLOR_HSV2GRAY)
+        gray = self.tablero_hsv[:, :, 2]
         lado = gray.shape[0]
 
         # Preprocesado
@@ -251,22 +265,6 @@ class ParserTable:
             x_pos=self.x_pos,
         )
 
-    # ── Helpers ──────────────────────────────────────────────────────────────
-
-    def _get_bgr(self):
-        if self._imagen_bgr is None:
-            self._imagen_bgr = cv2.imread(self.ruta)
-            if self._imagen_bgr is None:
-                raise FileNotFoundError(f"No se pudo cargar: {self.ruta}")
-        return self._imagen_bgr
-
-    def _get_gris(self):
-        if self._imagen_gris is None:
-            self._imagen_gris = cv2.imread(self.ruta, cv2.IMREAD_GRAYSCALE)
-            if self._imagen_gris is None:
-                raise FileNotFoundError(f"No se pudo cargar: {self.ruta}")
-        return self._imagen_gris
-
 
 # ── Demo ─────────────────────────────────────────────────────────────────────
 
@@ -274,9 +272,10 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_inclinado_4.jpg")
+    ruta = os.path.join(BASE, "../../data/raw/tablero_vertical_real.jpg")
 
-    parser = ParserTable(ruta)
+    img_gris = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
+    parser = ParserTable(img_gris)
 
     esquinas = parser.detect_board_corners()
     print("Esquinas detectadas:")
@@ -305,7 +304,7 @@ if __name__ == "__main__":
 
     img_board = board.dibujar()
 
-    imagen_debug = cv2.cvtColor(parser._get_bgr(), cv2.COLOR_BGR2RGB)
+    imagen_debug = cv2.cvtColor(parser._imagen_bgr, cv2.COLOR_BGR2RGB)
     cv2.drawContours(imagen_debug, [esquinas], -1, (0, 255, 0), 7)
 
     fig, axs = plt.subplots(1, 3, figsize=(18, 6))
