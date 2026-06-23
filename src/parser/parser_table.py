@@ -219,40 +219,55 @@ class ParserTable:
 
         self.H = cv2.getPerspectiveTransform(self._pts_origen, pts_destino)
         # Transformar directamente la imagen HSV generada en el constructor
-        self.tablero_hsv = cv2.warpPerspective(self._imagen_hsv, self.H, (lado, lado))
+        self.tablero_hsv = cv2.warpPerspective(
+            self._imagen_hsv,
+            self.H,
+            (lado, lado)
+        )
+
+        self.tablero_hsv = self._normalizar_iluminacion_hsv(
+            self.tablero_hsv
+        )
         return self.tablero_hsv
 
     # ── Paso 3: estandarizar orientación ────────────────────────────────────
 
     def standardize_orientation(self):
-        """Rota el tablero para que las blancas queden abajo y las negras arriba."""
         if self.tablero_hsv is None:
             self.correct_perspective()
 
-        v = self.tablero_hsv[:, :, 2].astype(np.float32)
+        v = self.tablero_hsv[:, :, 2]
         lado = v.shape[0]
-        cuarto = lado // 4
+        paso = lado // 8
+        margen = paso // 3  # Tomamos solo el 33% central de cada casilla
 
-        media_arriba = v[:cuarto, :].mean()
-        media_abajo  = v[-cuarto:, :].mean()
-        media_izq    = v[:, :cuarto].mean()
-        media_der    = v[:, -cuarto:].mean()
+        def medir_brillo(filas, columnas):
+            brillo = 0
+            for f in filas:
+                for c in columnas:
+                    # Extraemos un parche limpio en el centro exacto de la casilla
+                    y1, y2 = f * paso + margen, (f + 1) * paso - margen
+                    x1, x2 = c * paso + margen, (c + 1) * paso - margen
+                    brillo += np.mean(v[y1:y2, x1:x2])
+            return brillo
 
-        diff_vert  = abs(media_arriba - media_abajo)
-        diff_horiz = abs(media_izq    - media_der)
+        # Medimos solo las posiciones iniciales (filas/cols 0-1 vs 6-7)
+        todas = range(8)
+        extremos_ini = [0, 1]
+        extremos_fin = [6, 7]
+
+        m_arriba = medir_brillo(extremos_ini, todas)
+        m_abajo  = medir_brillo(extremos_fin, todas)
+        m_izq    = medir_brillo(todas, extremos_ini)
+        m_der    = medir_brillo(todas, extremos_fin)
+
+        diff_vert  = abs(m_arriba - m_abajo)
+        diff_horiz = abs(m_izq - m_der)
 
         if diff_vert >= diff_horiz:
-            rotacion = None if media_abajo >= media_arriba else cv2.ROTATE_180
+            rotacion = None if m_abajo >= m_arriba else cv2.ROTATE_180
         else:
-            rotacion = cv2.ROTATE_90_CLOCKWISE if media_der >= media_izq \
-                       else cv2.ROTATE_90_COUNTERCLOCKWISE
-
-        _ROT_NOMBRE = {None: 'None', cv2.ROTATE_180: '180°',
-                       cv2.ROTATE_90_CLOCKWISE: '90°CW',
-                       cv2.ROTATE_90_COUNTERCLOCKWISE: '90°CCW'}
-        print(f"[orient] arr={media_arriba:.0f} ab={media_abajo:.0f} "
-              f"izq={media_izq:.0f} der={media_der:.0f} | "
-              f"dv={diff_vert:.0f} dh={diff_horiz:.0f} → {_ROT_NOMBRE[rotacion]}")
+            rotacion = cv2.ROTATE_90_CLOCKWISE if m_der >= m_izq else cv2.ROTATE_90_COUNTERCLOCKWISE
 
         if rotacion is not None:
             self.tablero_hsv = cv2.rotate(self.tablero_hsv, rotacion)
@@ -337,6 +352,22 @@ class ParserTable:
             self.H,
             (800, 800)
         )
+    
+    def _normalizar_iluminacion_hsv(self, hsv):
+        """
+        Corrige iluminación no uniforme preservando colores.
+        """
+
+        h, s, v = cv2.split(hsv)
+
+        clahe = cv2.createCLAHE(
+            clipLimit=2.0,
+            tileGridSize=(8, 8)
+        )
+
+        v = clahe.apply(v)
+
+        return cv2.merge((h, s, v))
 
 # ── Demo ─────────────────────────────────────────────────────────────────────
 

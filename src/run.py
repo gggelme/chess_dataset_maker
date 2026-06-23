@@ -18,14 +18,37 @@ from ui.virtual_board import LiveBoard
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 VIVO            = False
-URL             = os.path.join(dir_raiz, "data", "raw", "partida_larga_normal.mp4")
+URL             = os.path.join(dir_raiz, "data", "raw", "prueba_rotado_90.mp4")
 MS_MUESTREO     = 250    # cada cuántos ms se analiza un frame
-MS_MIN_REFRESCO = 500    # tiempo mínimo entre detecciones de movimiento
-N_ESTABLES      = 2      # frames quietos consecutivos para declarar reposo
-UMBRAL          = 500    # energía global que indica movimiento/mano en escena
-UMBRAL_MINIMO   = 30     # por debajo de esto el tablero no cambió nada real
+MS_MIN_REFRESCO = 400    # tiempo mínimo entre detecciones de movimiento
+N_ESTABLES      = 3      # frames quietos consecutivos para declarar reposo
+UMBRAL          = 300    # energía global que indica movimiento/mano en escena
+UMBRAL_MINIMO   = 100     # por debajo de esto el tablero no cambió nada real
 UMBRAL_PIEZA    = 400    # energía mínima por celda para considerarla candidata
 LADO            = 800    # lado del tablero rectificado en píxeles
+
+
+# ── Visualización de energía ──────────────────────────────────────────────────
+
+def _dibujar_energia(diff_warp, energias, y_pos, x_pos, umbral_pieza):
+    """Superpone la energía por celda sobre la diferencia warpeada."""
+    vis = cv.cvtColor(cv.convertScaleAbs(diff_warp, alpha=3), cv.COLOR_GRAY2BGR)
+    max_e = float(max(energias.max(), 1))
+
+    for i in range(8):
+        for j in range(8):
+            y1, y2 = y_pos[i], y_pos[i + 1]
+            x1, x2 = x_pos[j], x_pos[j + 1]
+            e = float(energias[i, j])
+            ratio = min(e / max_e, 1.0)
+            # BGR: verde (bajo) → rojo (alto)
+            color = (0, int(255 * (1 - ratio)), int(255 * ratio))
+            grosor = 2 if e > umbral_pieza else 1
+            cv.rectangle(vis, (x1, y1), (x2, y2), color, grosor)
+            cv.putText(vis, str(int(e)), (x1 + 3, y1 + 16),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+
+    return vis
 
 
 # ── Loop principal ─────────────────────────────────────────────────────────────
@@ -77,6 +100,9 @@ def main():
                 ultimo_refresco = ahora
                 live_board = LiveBoard()
                 live_board.actualizar(tablero.matriz)  # mostrar posición inicial
+                # Mostrar tablero rectificado para verificar orientación
+                tablero_bgr = cv.cvtColor(parser.tablero_hsv, cv.COLOR_HSV2BGR)
+                cv.imshow("Tablero rectificado", tablero_bgr)
                 print("Tablero inicializado. Buscar ventana 'Tablero Digital en Tiempo Real'.")
             except Exception as e:
                 print(f"Inicialización fallida: {e}. Reintentando...")
@@ -114,8 +140,13 @@ def main():
             print(f"\n>>> DETECCION  energia={energia:.1f}  frames_estables={frames_estables}  dt_ref={ahora-ultimo_refresco:.0f}ms")
             ref_nueva = gris.copy()
 
-            top4, _ = obtener_top_celdas(frame_ref, ref_nueva, parser, UMBRAL_PIEZA)
+            top4, energias = obtener_top_celdas(frame_ref, ref_nueva, parser, UMBRAL_PIEZA)
             print(f"  Top celdas: {top4}")
+
+            diff_warp = cv.warpPerspective(
+                cv.absdiff(frame_ref, ref_nueva), parser.H, (LADO, LADO))
+            cv.imshow("Energia celdas",
+                      _dibujar_energia(diff_warp, energias, parser.y_pos, parser.x_pos, UMBRAL_PIEZA))
 
             if len(top4) >= 2:
                 inferir_movimiento(tablero, top4)
