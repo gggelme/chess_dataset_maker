@@ -160,7 +160,7 @@ class LiveBoard:
                 return False
 
         # Dibujado general
-        self.pantalla.blit(self.assets['fondo'], (0, 0))
+        self.pantalla.blit(pygame.transform.flip(self.assets['fondo'], True, False), (0, 0))
         
         # Dibujar piezas (usando np.nonzero para mayor eficiencia)
         filas, cols = np.nonzero(matriz)

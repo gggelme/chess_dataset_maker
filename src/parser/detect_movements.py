@@ -4,7 +4,6 @@ import chess
 import time
 import os
 import sys
-from collections import deque
 
 # python src/parser/detect_movements.py
 
@@ -449,18 +448,22 @@ def ver_por_frame(video, energias, interrupciones, referencias):
 def ejecutar_foto_captura(
     vivo=True,
     url='',
-    ms=500,
-    actualizar_ref_ms=5000,
-    refresco_periodico_ms=2000,
-    N_estables=5,
-    umbral=1500,
-    umbral_pieza=500,
+    ms=250,
+    ms_min_refresco=1000,
+    N_estables=2,
+    umbral=300,
+    umbral_minimo=25,
+    umbral_pieza=50,
     lado=800,
-    energia_minima_refresco=30,
-    max_intentos_inicializacion=10,  # NUEVO: límite de intentos
-    timeout_segundos=30,  # NUEVO: tiempo máximo de ejecución
+    max_intentos_inicializacion=10,
+    mostrar_en_vivo=True,
 ):
-    """Procesa un video detectando y aplicando movimientos de ajedrez."""
+    """Procesa un video detectando y aplicando movimientos de ajedrez.
+    
+    Versión corregida: lectura secuencial sin freeze, energía instantánea,
+    máquina de estados post-interrupción. Funciona bien tanto standalone
+    como importado desde run.py.
+    """
     cap = cv.VideoCapture(0 if vivo else url)
     if not cap.isOpened():
         print(f"Error: no se pudo abrir la fuente: {url!r}")
@@ -474,285 +477,152 @@ def ejecutar_foto_captura(
     parser = None
     tablero = None
     frame_ref = None
-    historial_energia = deque(maxlen=10)
+    board_logico = None  
     
     # Contadores para debug
     intentos_inicializacion = 0
     frames_procesados = 0
     tiempo_inicio = time.time()
-
-    # ── MODO OFFLINE ─────────────────────────────────────────────────────────
-    if not vivo:
-        t = 0
-        ultimo_refresco_ms = 0
-        ultimo_refresco_periodico_ms = 0
-        frames_estables = 0
-        ultimo_estado = None
-        
-        # Obtener duración total del video
-        duracion_total_ms = int(cap.get(cv.CAP_PROP_FRAME_COUNT) * 1000 / cap.get(cv.CAP_PROP_FPS))
-        print(f"Duración del video: {duracion_total_ms/1000:.1f} segundos")
-
-        while True:
-            # ── CONTROL DE TIMEOUT ──────────────────────────────────────
-            tiempo_transcurrido = time.time() - tiempo_inicio
-            if tiempo_transcurrido > timeout_segundos:
-                print(f"⏰ TIMEOUT: {timeout_segundos}s alcanzado. Saliendo...")
-                break
-                
-            # ── CONTROL DE AVANCE ────────────────────────────────────────
-            if t > duracion_total_ms:
-                print(f"✅ Video procesado completamente. Total frames: {frames_procesados}")
-                break
-
-            # ── LECTURA DE FRAME ────────────────────────────────────────
-            cap.set(cv.CAP_PROP_POS_MSEC, t)
-            ret, frame = cap.read()
-            if not ret:
-                print(f"⚠️ No se pudo leer el frame en t={t}ms. Avanzando...")
-                t += ms
-                continue
-
-            gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-            energia_frame = get_energia(gris)
-            frames_procesados += 1
-            
-            # Mostrar progreso cada 5 segundos
-            if frames_procesados % 10 == 0:
-                print(f"Progreso: {t/duracion_total_ms*100:.1f}% ({t}ms / {duracion_total_ms}ms)")
-
-            # ── INICIALIZACIÓN ──────────────────────────────────────────
-            if frame_ref is None:
-                if energia_frame < 50:
-                    print(f"[{t}ms] Frame oscuro ({energia_frame:.1f}). Avanzando...")
-                    t += ms
-                    continue
-                
-                try:
-                    parser, tablero = inicializar_tablero(gris, lado)
-                    frame_ref = gris.copy()
-                    ultimo_refresco_ms = t
-                    ultimo_refresco_periodico_ms = t
-                    print(f"✅ [{t}ms] Referencia inicial establecida.")
-                    intentos_inicializacion = 0
-                except Exception as e:
-                    intentos_inicializacion += 1
-                    print(f"❌ [{t}ms] Inicialización fallida (intento {intentos_inicializacion}): {e}")
-                    
-                    if intentos_inicializacion >= max_intentos_inicializacion:
-                        print("🔴 Demasiados intentos fallidos. Abortando...")
-                        break
-                    
-                    t += ms
-                    continue
-
-            # ── PROCESAMIENTO NORMAL ────────────────────────────────────
-            video.append(frame)
-            referencias.append(frame_ref.copy())
-
-            diff = cv.absdiff(gris, frame_ref)
-            energia = get_energia(diff)
-            historial_energia.append(energia)
-            energia_estable = np.mean(historial_energia) if historial_energia else energia
-            interrupcion = energia_estable > umbral
-            
-            energias.append(energia)
-            interrupciones.append(interrupcion)
-
-            # ── GESTIÓN DE ESTADOS ──────────────────────────────────────
-            if interrupcion:
-                frames_estables = 0
-                if ultimo_estado != 'interrupcion':
-                    print(f"⚡ [{t}ms] INTERRUPCIÓN (E={energia:.1f}, promedio={energia_estable:.1f})")
-                    ultimo_estado = 'interrupcion'
-            else:
-                frames_estables += 1
-                if ultimo_estado != 'estable':
-                    print(f"🟢 [{t}ms] ESTABLE (E={energia:.1f}, frames={frames_estables})")
-                    ultimo_estado = 'estable'
-
-            # ── REFRESCO PERIÓDICO ──────────────────────────────────────
-            tiempo_desde_ref_periodico = t - ultimo_refresco_periodico_ms
-            if (not interrupcion and 
-                tiempo_desde_ref_periodico >= refresco_periodico_ms and
-                energia < energia_minima_refresco):
-                
-                print(f"🔄 [{t}ms] Refresco periódico (E={energia:.1f})")
-                frame_ref = gris.copy()
-                ultimo_refresco_periodico_ms = t
-                ultimo_refresco_ms = t
-                frames_estables = 0
-
-            # ── DETECCIÓN DE MOVIMIENTO ─────────────────────────────────
-            tiempo_desde_movimiento = t - ultimo_refresco_ms
-            if (not interrupcion and 
-                tiempo_desde_movimiento >= actualizar_ref_ms and 
-                frames_estables >= N_estables and
-                energia > energia_minima_refresco):
-                
-                print(f"\n🎯 [{t}ms] MOVIMIENTO DETECTADO")
-                print(f"   Energía: {energia:.1f}, Frames estables: {frames_estables}")
-                ref_nueva = gris.copy()
-
-                top4, energias_celdas = obtener_top_celdas(
-                    frame_ref, ref_nueva, parser, umbral_pieza
-                )
-                print(f"   Top celdas: {top4}")
-
-                if len(top4) >= 2:
-                    movimiento_exitoso = inferir_movimiento(tablero, top4)
-                    if movimiento_exitoso:
-                        print(f"   ✅ Movimiento aplicado")
-                    else:
-                        print(f"   ❌ No se pudo aplicar movimiento")
-                else:
-                    print(f"   ⚠️ Menos de 2 celdas con energía > {umbral_pieza}")
-
-                frame_ref = ref_nueva
-                ultimo_refresco_ms = t
-                ultimo_refresco_periodico_ms = t
-                frames_estables = 0
-                ultimo_estado = None
-
-            # ── AVANZAR AL SIGUIENTE FRAME ─────────────────────────────
-            t += ms
-
-    # ── MODO EN VIVO ─────────────────────────────────────────────────────────
+    
+    idx_frame = 0
+    frames_estables = 0
+    ultimo_estado = None
+    post_interrupcion = False
+    pendiente_ref = False
+    frames_desde_ref = 0
+    
+    # Muestreo por conteo de frames (lectura secuencial, sin seeking)
+    if vivo:
+        fps = 30  # aproximado en cámara
     else:
-        ultimo_t = 0
-        ultimo_refresco = 0
-        ultimo_refresco_periodico = 0
-        frames_estables = 0
-        ultimo_estado = None
-        historial_energia = deque(maxlen=10)
-        frames_sin_movimiento = 0  # NUEVO: contador de frames sin movimiento
+        fps = cap.get(cv.CAP_PROP_FPS)
+    
+    salto = max(1, int(fps * ms / 1000.0))  # frames a saltar
+    
+    print(f"FPS: {fps}, Salto: {salto} frames (~{salto*1000/fps:.0f}ms)")
 
-        while cap.isOpened():
-            # ── CONTROL DE TIMEOUT ──────────────────────────────────────
-            tiempo_transcurrido = time.time() - tiempo_inicio
-            if tiempo_transcurrido > timeout_segundos:
-                print(f"⏰ TIMEOUT: {timeout_segundos}s alcanzado. Saliendo...")
-                break
-
-            ret, frame = cap.read()
-            if not ret:
-                print("📹 Fin del video/stream")
-                break
-
-            ahora = time.perf_counter()
-
-            # ── MOSTRAR FRAME SIEMPRE ──────────────────────────────────
-            cv.imshow("En vivo", frame)
-            if cv.waitKey(1) & 0xFF == ord('q'):  # Usar 'q' para salir
-                print("🛑 Salida solicitada por el usuario")
-                break
-
-            if (ahora - ultimo_t) * 1000 < ms:
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        
+        idx_frame += 1
+        
+        # Muestrear cada `salto` frames
+        if idx_frame % salto != 0:
+            continue
+        
+        gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        frames_procesados += 1
+        
+        # ── INICIALIZACIÓN ──────────────────────────────────────────
+        if frame_ref is None:
+            if get_energia(gris) < 50:
                 continue
-
-            ultimo_t = ahora
-            gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-            energia_frame = get_energia(gris)
-            frames_procesados += 1
-
-            # ── INICIALIZACIÓN ──────────────────────────────────────────
-            if frame_ref is None:
-                if energia_frame < 50:
-                    continue
-                
-                try:
-                    parser, tablero = inicializar_tablero(gris, lado)
-                    frame_ref = gris.copy()
-                    ultimo_refresco = ahora
-                    ultimo_refresco_periodico = ahora
-                    print("✅ Referencia inicial establecida (LIVE).")
-                    intentos_inicializacion = 0
-                except Exception as e:
-                    intentos_inicializacion += 1
-                    print(f"❌ Inicialización fallida (intento {intentos_inicializacion}): {e}")
-                    if intentos_inicializacion >= max_intentos_inicializacion:
-                        print("🔴 Demasiados intentos fallidos. Saliendo...")
-                        break
-                    continue
-
-            # ── PROCESAMIENTO NORMAL ────────────────────────────────────
-            video.append(frame)
-            referencias.append(frame_ref.copy())
-
-            diff = cv.absdiff(gris, frame_ref)
-            energia = get_energia(diff)
-            historial_energia.append(energia)
-            energia_estable = np.mean(historial_energia) if historial_energia else energia
-            interrupcion = energia_estable > umbral
-            
-            energias.append(energia)
-            interrupciones.append(interrupcion)
-
-            # ── GESTIÓN DE ESTADOS ──────────────────────────────────────
-            if interrupcion:
-                frames_estables = 0
-                frames_sin_movimiento = 0
-                if ultimo_estado != 'interrupcion':
-                    print(f"⚡ INTERRUPCIÓN (E={energia:.1f})")
-                    ultimo_estado = 'interrupcion'
-            else:
-                frames_estables += 1
-                frames_sin_movimiento += 1
-                if ultimo_estado != 'estable':
-                    print(f"🟢 ESTABLE (E={energia:.1f}, frames={frames_estables})")
-                    ultimo_estado = 'estable'
-
-            # ── REFRESCO PERIÓDICO ──────────────────────────────────────
-            tiempo_desde_ref_periodico = (ahora - ultimo_refresco_periodico) * 1000
-            if (not interrupcion and 
-                tiempo_desde_ref_periodico >= refresco_periodico_ms and
-                energia < energia_minima_refresco):
-                
-                print(f"🔄 Refresco periódico (E={energia:.1f})")
+            try:
+                parser, tablero = inicializar_tablero(gris, lado)
+                board_logico = chess.Board()  # ✅ Crear chess.Board en paralelo
                 frame_ref = gris.copy()
-                ultimo_refresco_periodico = ahora
-                ultimo_refresco = ahora
-                frames_estables = 0
-
-            # ── DETECCIÓN DE MOVIMIENTO ─────────────────────────────────
-            tiempo_desde_movimiento = (ahora - ultimo_refresco) * 1000
-            if (not interrupcion and 
-                tiempo_desde_movimiento >= actualizar_ref_ms and 
-                frames_estables >= N_estables and
-                energia > energia_minima_refresco):
-                
-                print(f"\n🎯 MOVIMIENTO DETECTADO (E={energia:.1f})")
-                ref_nueva = gris.copy()
-
-                top4, _ = obtener_top_celdas(frame_ref, ref_nueva, parser, umbral_pieza)
-                print(f"   Top celdas: {top4}")
-
-                if len(top4) >= 2:
-                    inferir_movimiento(tablero, top4)
-
-                frame_ref = ref_nueva
-                ultimo_refresco = ahora
-                ultimo_refresco_periodico = ahora
+                intentos_inicializacion = 0
+                print(f"✅ Referencia inicial establecida (frame {idx_frame}).")
+            except Exception as e:
+                intentos_inicializacion += 1
+                print(f"❌ Inicialización fallida (intento {intentos_inicializacion}): {e}")
+                if intentos_inicializacion >= max_intentos_inicializacion:
+                    print("🔴 Demasiados intentos fallidos. Abortando...")
+                    break
+                continue
+        
+        # ── PROCESAMIENTO NORMAL ────────────────────────────────────
+        video.append(frame)
+        referencias.append(frame_ref.copy())
+        
+        # Energía INSTANTÁNEA (sin deque)
+        diff = cv.absdiff(gris, frame_ref)
+        energia = get_energia(diff)
+        energias.append(energia)
+        
+        interrupcion = energia > umbral
+        interrupciones.append(interrupcion)
+        
+        # ── MÁQUINA DE ESTADOS ──────────────────────────────────────
+        if interrupcion:
+            frames_estables = 0
+            post_interrupcion = True
+            pendiente_ref = False
+            if ultimo_estado != 'interrupcion':
+                print(f"⚡ INTERRUPCIÓN (E={energia:.1f})")
+                ultimo_estado = 'interrupcion'
+        else:
+            frames_estables += 1
+            if ultimo_estado != 'estable':
+                print(f"🟢 ESTABLE (E={energia:.1f}, frames={frames_estables})")
+                ultimo_estado = 'estable'
+        
+        # ── Limpieza de referencia pendiente (asentamiento) ──────────
+        if pendiente_ref and not interrupcion and not post_interrupcion:
+            if energia < umbral_minimo:
+                frame_ref = gris.copy()
+                pendiente_ref = False
                 frames_estables = 0
                 ultimo_estado = None
-                frames_sin_movimiento = 0
-
-            # ── DETECTAR SI EL TABLERO ESTÁ CONGELADO ──────────────────
-            if frames_sin_movimiento > 100:  # ~50 segundos sin movimiento
-                print(f"⚠️ {frames_sin_movimiento} frames sin movimiento. Forzando refresco...")
-                frame_ref = gris.copy()
-                ultimo_refresco = ahora
-                ultimo_refresco_periodico = ahora
+                print(f"  🔄 [ref asentada, E={energia:.1f}]")
+        
+        # ── Detección / Refresco ─────────────────────────────────────
+        elif (
+            not interrupcion
+            and frames_estables >= N_estables
+            and post_interrupcion
+        ):
+            if energia >= umbral_minimo:
+                # ── Jugada detectada ─────────────────────────────────────
+                print(f"\n>>> DETECCION (E={energia:.1f}, frames={frames_estables})")
+                ref_nueva = gris.copy()
+                
+                cambiadas, energias_celdas = obtener_celdas_cambiadas(
+                    frame_ref, ref_nueva, parser, umbral_pieza)
+                print(f"  Celdas cambiadas: {cambiadas}")
+                
+                if len(cambiadas) >= 2:
+                    # ✅ Usar board_logico (chess.Board) en lugar de tablero
+                    mov = inferir_movimiento_legal(board_logico, cambiadas, energias_celdas)
+                    if mov is not None:
+                        print(f"  ✅ Movimiento aplicado: {mov.uci()}")
+                    else:
+                        print(f"  ❌ No se pudo aplicar movimiento")
+                else:
+                    print(f"  ⚠️ Menos de 2 celdas con energía > {umbral_pieza}")
+                
+                frame_ref = ref_nueva
                 frames_estables = 0
-                frames_sin_movimiento = 0
-
+                post_interrupcion = False
+                pendiente_ref = True  # pedir limpieza cuando se asiente
+                ultimo_estado = None
+            
+            elif energia < umbral_minimo:
+                # Tablero quieto sin interrupción previa
+                frame_ref = gris.copy()
+                frames_estables = 0
+                post_interrupcion = False
+                pendiente_ref = False
+                ultimo_estado = None
+        
+        elif not interrupcion and frames_estables >= N_estables and not post_interrupcion:
+            # Refresco periódico por quietud prolongada (tablero ya estable)
+            if energia < umbral_minimo:
+                frame_ref = gris.copy()
+                frames_estables = 0
+                ultimo_estado = None
+    
     cap.release()
     cv.destroyAllWindows()
     
     print(f"\n📊 Resumen:")
-    print(f"   Frames procesados: {frames_procesados}")
-    print(f"   Movimientos detectados: {len([e for e in interrupciones if e])}")
+    print(f"   Frames leídos: {idx_frame}  |  procesados: {frames_procesados}")
+    print(f"   Muestras registradas: {len(video)}")
+    print(f"   Interrupciones: {sum(1 for i in interrupciones if i)}")
     print(f"   Energía promedio: {np.mean(energias) if energias else 0:.1f}")
+    print(f"   Tiempo: {time.time() - tiempo_inicio:.1f}s")
     
     return video, energias, interrupciones, referencias
 
@@ -762,17 +632,17 @@ def ejecutar_foto_captura(
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    ruta = os.path.join(carpeta_data_raw, "prueba_bien.mp4")
+    ruta = os.path.join(carpeta_data_raw, "Prueba_Completa.mp4")
 
     video, energias, interrupciones, referencias = ejecutar_foto_captura(
         vivo=False,
         url=ruta,
-        ms=200,
-        actualizar_ref_ms=200,
+        ms=250,
+        ms_min_refresco=1000,
         N_estables=2,
         umbral=300,
+        umbral_minimo=25,
         umbral_pieza=50,
     )
 
     ver_por_frame(video, energias, interrupciones, referencias)
-

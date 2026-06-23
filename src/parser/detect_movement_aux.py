@@ -691,7 +691,7 @@ def ejecutar_foto_captura(
 # ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
-    ruta = os.path.join(carpeta_data_raw, "Prueba_Completa.mp4")
+    ruta = os.path.join(carpeta_data_raw, "partida_larga_normal.mp4")
 
     video, energias, interrupciones, referencias = ejecutar_foto_captura(
         vivo=False,

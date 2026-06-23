@@ -3,21 +3,21 @@
   "movimientos": [
     {
       "numero": 1,
-      "jugada": "c5",
-      "uci": "c7c5",
-      "recomendado": "c6  -34"
+      "jugada": "h5",
+      "uci": "h7h5",
+      "recomendado": null
     },
     {
       "numero": 2,
-      "jugada": "Nf6",
-      "uci": "g8f6",
-      "recomendado": "Nf6  -18"
+      "jugada": "Rh6",
+      "uci": "h8h6",
+      "recomendado": null
     },
     {
       "numero": 3,
       "jugada": "e6",
       "uci": "e7e6",
-      "recomendado": "Nxe4  +103"
+      "recomendado": null
     }
   ]
 }
