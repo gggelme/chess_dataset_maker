@@ -33,9 +33,9 @@ class LiveBoard:
         # Inicialización
         pygame.init()
         pygame.font.init()
-        self.fuente        = pygame.font.SysFont("Consolas", 22, bold=True)
-        self.fuente_chica  = pygame.font.SysFont("Consolas", 18)
-        self.fuente_mini   = pygame.font.SysFont("Consolas", 14)
+        self.fuente        = pygame.font.SysFont("Verdana", 22, bold=True)
+        self.fuente_chica  = pygame.font.SysFont("Verdana", 18)
+        self.fuente_mini   = pygame.font.SysFont("Verdana", 14)
 
         # Pantalla más ancha para incluir el panel
         self.pantalla = pygame.display.set_mode((self.ancho_tablero + self.ancho_panel, self.ancho_tablero))
@@ -76,64 +76,55 @@ class LiveBoard:
 
 
     def _dibujar_panel(self):
-        COLOR_FONDO   = (40, 44, 52)
-        COLOR_SUBTIT  = (171, 178, 191)
-        COLOR_BLANCAS = (255, 210, 80)    # dorado para blancas
-        COLOR_NEGRAS  = (90, 170, 255)    # azul claro para negras
-
+        COLOR_FONDO   = (30, 33, 40) # Un tono más oscuro y elegante
+        COLOR_SUBTIT  = (140, 145, 155)
+        COLOR_BLANCAS = (255, 210, 80)
+        COLOR_NEGRAS  = (90, 170, 255)
+        
         x0 = self.ancho_tablero
         rect_panel = pygame.Rect(x0, 0, self.ancho_panel, self.ancho_tablero)
         pygame.draw.rect(self.pantalla, COLOR_FONDO, rect_panel)
 
-        # ── Relojes ─────────────────────────────────────────────────────────
-        txt = self.fuente.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT)
-        self.pantalla.blit(txt, (x0 + 15, 30))
+        # ── Control de Tiempo ──────────────────────────────────────────────
+        self.pantalla.blit(self.fuente_chica.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT), (x0 + 20, 20))
 
         def dibujar_reloj(y, titulo, tiempo, activo):
-            color_caja  = (50, 168, 82) if activo else (59, 64, 72)
-            color_texto = (255, 255, 255) if activo else COLOR_SUBTIT
-            caja = pygame.Rect(x0 + 15, y, 220, 80)
-            pygame.draw.rect(self.pantalla, color_caja, caja, border_radius=12)
+            color_caja  = (46, 160, 67) if activo else (45, 48, 56)
+            color_texto = (255, 255, 255) if activo else (180, 185, 195)
+            
+            caja = pygame.Rect(x0 + 20, y, 210, 65)
+            pygame.draw.rect(self.pantalla, color_caja, caja, border_radius=8)
+            
             m, s = divmod(int(tiempo), 60)
-            self.pantalla.blit(self.fuente_chica.render(titulo, True, color_texto),
-                               (caja.x + 15, caja.y + 14))
-            self.pantalla.blit(self.fuente.render(f"{m:02d}:{s:02d}", True, color_texto),
-                               (caja.x + 15, caja.y + 42))
+            self.pantalla.blit(self.fuente_chica.render(titulo, True, color_texto), (caja.x + 15, caja.y + 10))
+            self.pantalla.blit(self.fuente.render(f"{m:02d}:{s:02d}", True, color_texto), (caja.x + 15, caja.y + 32))
 
-        dibujar_reloj(100, "Blancas", self.tiempos[1],  self.turno == 1)
-        dibujar_reloj(200, "Negras",  self.tiempos[-1], self.turno == -1)
+        dibujar_reloj(55, "Blancas", self.tiempos[1],  self.turno == 1)
+        dibujar_reloj(135, "Negras", self.tiempos[-1], self.turno == -1)
 
-        # ── Sugerencias Stockfish ────────────────────────────────────────────
-        sep_y = 305
-        pygame.draw.line(self.pantalla, (70, 75, 85),
-                         (x0 + 10, sep_y), (x0 + self.ancho_panel - 10, sep_y), 1)
-
-        self.pantalla.blit(
-            self.fuente_chica.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT),
-            (x0 + 15, sep_y + 12)
-        )
+        # ── Separador y Mejor Movimiento ───────────────────────────────────
+        sep_y = 230
+        pygame.draw.line(self.pantalla, (55, 60, 70), (x0 + 20, sep_y), (x0 + 230, sep_y), 2)
+        
+        self.pantalla.blit(self.fuente_chica.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
 
         def dibujar_sugerencia(y, titulo, texto, color_acento):
-            caja = pygame.Rect(x0 + 15, y, 220, 75)
-            pygame.draw.rect(self.pantalla, (52, 56, 66), caja, border_radius=10)
-            # franja de color en el borde izquierdo
-            pygame.draw.rect(self.pantalla, color_acento,
-                             pygame.Rect(x0 + 15, y, 5, 75), border_radius=4)
+            caja = pygame.Rect(x0 + 20, y, 210, 60)
+            pygame.draw.rect(self.pantalla, (35, 38, 45), caja, border_radius=8)
+            pygame.draw.rect(self.pantalla, color_acento, pygame.Rect(caja.x, caja.y, 4, caja.height), border_radius=4)
 
-            self.pantalla.blit(
-                self.fuente_mini.render(titulo, True, color_acento),
-                (caja.x + 14, caja.y + 10)
-            )
-            mov_txt = texto if texto else "analizando..."
-            color_txt = (220, 220, 220) if texto else (120, 120, 120)
-            self.pantalla.blit(
-                self.fuente.render(mov_txt, True, color_txt),
-                (caja.x + 14, caja.y + 36)
-            )
+            self.pantalla.blit(self.fuente_mini.render(titulo, True, color_acento), (caja.x + 15, caja.y + 10))
+
+            if texto:
+                txt_render = self.fuente.render(texto, True, (220, 220, 220))
+            else:
+                txt_render = self.fuente_chica.render("analizando...", True, (100, 105, 115))
+
+            self.pantalla.blit(txt_render, (caja.x + 15, caja.y + 28))
 
         sug = self.sugerencias
-        dibujar_sugerencia(340, "BLANCAS", sug.get('blancas'), COLOR_BLANCAS)
-        dibujar_sugerencia(430, "NEGRAS",  sug.get('negras'),  COLOR_NEGRAS)
+        dibujar_sugerencia(sep_y + 45, "BLANCAS", sug.get('blancas'), COLOR_BLANCAS)
+        dibujar_sugerencia(sep_y + 115, "NEGRAS",  sug.get('negras'),  COLOR_NEGRAS)
 
 
     def actualizar(self, matriz):

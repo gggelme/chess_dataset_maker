@@ -3,14 +3,14 @@
   "movimientos": [
     {
       "numero": 1,
-      "jugada": "h5",
-      "uci": "h7h5",
+      "jugada": "c5",
+      "uci": "c7c5",
       "recomendado": null
     },
     {
       "numero": 2,
-      "jugada": "Rh6",
-      "uci": "h8h6",
+      "jugada": "Nf6",
+      "uci": "g8f6",
       "recomendado": null
     },
     {

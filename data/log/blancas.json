@@ -3,26 +3,20 @@
   "movimientos": [
     {
       "numero": 1,
-      "jugada": "g4",
-      "uci": "g2g4",
+      "jugada": "e4",
+      "uci": "e2e4",
       "recomendado": null
     },
     {
       "numero": 2,
-      "jugada": "Nf3",
-      "uci": "g1f3",
+      "jugada": "c3",
+      "uci": "c2c3",
       "recomendado": null
     },
     {
       "numero": 3,
-      "jugada": "b3",
-      "uci": "b2b3",
-      "recomendado": null
-    },
-    {
-      "numero": 4,
-      "jugada": "Ba3",
-      "uci": "c1a3",
+      "jugada": "g3",
+      "uci": "g2g3",
       "recomendado": null
     }
   ]
