@@ -2,68 +2,364 @@ import cv2 as cv
 import numpy as np
 import time
 import os
+import sys
 
-dir_actual = os.path.dirname(os.path.abspath(__file__))
-dir_raiz = os.path.dirname(os.path.dirname(dir_actual))
+# python src/parser/detect_movements.py
+
+dir_actual       = os.path.dirname(os.path.abspath(__file__))
+dir_raiz         = os.path.dirname(os.path.dirname(dir_actual))
 carpeta_data_raw = os.path.join(dir_raiz, "data", "raw")
 
+sys.path.insert(0, dir_actual)
+from parser_table import ParserTable
+from elements.board import Board
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# MÉTRICAS
+# ══════════════════════════════════════════════════════════════════════════════
 
 def get_energia(imagen):
-    imagen = imagen.astype(np.float32)
-    return np.mean(imagen**2)
+    """Media de cuadrados de píxeles.
 
+    Proxy de cuánto cambió una zona: valor alto → mucho movimiento/diferencia.
+    Se usa tanto para la señal global (¿hay interrupción?) como por celda
+    (¿qué cuadros del tablero cambiaron más?).
+    """
+    return np.mean(imagen.astype(np.float32) ** 2)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INICIALIZACIÓN DEL TABLERO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def inicializar_tablero(frame_gris, lado=800):
+    """Detecta el tablero en un frame y construye el Board virtual.
+
+    Ejecuta el pipeline completo de ParserTable:
+      1. Esquinas del tablero (Canny + contorno convexo)
+      2. Corrección de perspectiva → cuadrado lado×lado en HSV
+      3. Orientación (blancas abajo, negras arriba)
+      4. Grilla Hough → y_pos / x_pos (9 límites de fila y columna)
+
+    Lanza excepción si cualquier paso falla (imagen oscura, tablero no visible,
+    Hough sin líneas, etc.). El llamador decide si reintentar.
+
+    Devuelve (parser, tablero):
+      parser  : ParserTable con H, tablero_hsv, y_pos, x_pos ya calculados.
+      tablero : Board en posición inicial, listo para recibir movimientos.
+    """
+    parser = ParserTable(frame_gris)
+    parser.detect_board_corners()
+    parser.correct_perspective(lado)
+    parser.standardize_orientation()
+    parser.detect_grid_lines()
+
+    tablero = Board(
+        nueva_partida=True,
+        imagen_rectificada=parser.tablero_hsv,
+        y_pos=parser.y_pos,
+        x_pos=parser.x_pos,
+    )
+    print(f"Tablero inicializado — turno: {tablero.turno}")
+    return parser, tablero
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ANÁLISIS DE DIFERENCIA EN ESPACIO DEL TABLERO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _warp_diferencia(diferencia_gris, H, lado):
+    """Aplica la homografía H a la imagen diferencia.
+
+    Lleva la diferencia del espacio de la cámara al espacio del tablero
+    rectificado, para que los recortes de cada celda sean comparables.
+    H debe ser la misma matriz calculada por correct_perspective().
+    """
+    return cv.warpPerspective(diferencia_gris, H, (lado, lado))
+
+
+def obtener_top_celdas(frame_ref_gris, frame_nuevo_gris, parser, umbral_pieza):
+    """Identifica las celdas del tablero con mayor cambio entre dos frames.
+
+    Proceso:
+      1. Diferencia absoluta entre los dos frames en escala de grises.
+      2. Warp de la diferencia al espacio del tablero (usa H del parser).
+      3. Para cada una de las 64 celdas (según y_pos / x_pos) se calcula
+         la energía del recorte de la diferencia warpeada.
+      4. Se filtran las celdas cuya energía supera `umbral_pieza` y se
+         devuelven las top-4 ordenadas de mayor a menor energía.
+
+    Devuelve:
+      top4     : lista de tuplas (fila, col) — máx. 4 celdas candidatas.
+      ENERGIAS : np.array (8, 8) con la energía de cada celda (para debug).
+    """
+    y_pos = parser.y_pos
+    x_pos = parser.x_pos
+    lado  = parser.tablero_hsv.shape[0]
+
+    diferencia      = cv.absdiff(frame_nuevo_gris, frame_ref_gris)
+    diferencia_warp = _warp_diferencia(diferencia, parser.H, lado)
+
+    ENERGIAS = np.zeros((8, 8), dtype=np.float32)
+    for i in range(8):
+        for j in range(8):
+            y1, y2 = y_pos[i], y_pos[i + 1]
+            x1, x2 = x_pos[j], x_pos[j + 1]
+            ENERGIAS[i, j] = get_energia(diferencia_warp[y1:y2, x1:x2])
+
+    flat            = ENERGIAS.ravel()
+    indices_validos = np.where(flat > umbral_pieza)[0]
+
+    if len(indices_validos) == 0:
+        return [], ENERGIAS
+
+    sorted_validos = indices_validos[np.argsort(flat[indices_validos])[::-1]]
+    top4 = [(int(idx // 8), int(idx % 8)) for idx in sorted_validos[:4]]
+
+    return top4, ENERGIAS
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# INFERENCIA Y EJECUCIÓN DEL MOVIMIENTO
+# ══════════════════════════════════════════════════════════════════════════════
+
+def inferir_movimiento(tablero, top4):
+    """Deduce origen y destino del movimiento y lo aplica al tablero virtual.
+
+    Clasifica cada celda candidata:
+      - origen  : tiene una pieza del jugador en turno.
+      - destino : está vacía O tiene pieza enemiga (captura).
+
+    Con al menos un origen y un destino, ejecuta tablero.mover().
+    Si la inferencia es ambigua o el movimiento es inválido, solo imprime
+    un aviso y deja el tablero sin cambios.
+
+    Devuelve True si el movimiento se aplicó correctamente, False si no.
+    """
+    origenes = []
+    destinos = []
+
+    for i, j in top4:
+        pieza = tablero.piezas[i][j]
+        if pieza is None:
+            destinos.append((i, j))
+        elif pieza.color == tablero.turno:
+            origenes.append((i, j))
+        else:
+            # pieza enemiga → celda de captura
+            destinos.append((i, j))
+
+    print(f"  turno={tablero.turno} | orígenes={origenes} | destinos={destinos}")
+
+    if not origenes or not destinos:
+        print("  No se pudo inferir movimiento (orígenes o destinos vacíos).")
+        return False
+
+    # Probar todas las combinaciones origen×destino hasta encontrar una válida
+    for origen in origenes:
+        for destino in destinos:
+            try:
+                tablero.mover(origen=origen, destino=destino)
+                print(f"  OK — {origen} → {destino} | turno ahora: {tablero.turno}")
+                return True
+            except ValueError as e:
+                print(f"  ({origen}→{destino}) inválido: {e}")
+
+    print("  Ninguna combinación de origen×destino resultó válida.")
+    return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# VISOR DE DEBUG
+# ══════════════════════════════════════════════════════════════════════════════
 
 def ver_por_frame(video, energias, interrupciones, referencias):
-    upper_cap_slider_max = len(video) - 1
+    """Visor interactivo frame a frame del video procesado.
 
-    title_frame = "Frame"
-    title_ref = "Referencia"
-    title_diff = "Diferencia"
+    Abre 4 ventanas controladas por un slider:
+      - Frame        : imagen original con energía e indicador de interrupción.
+      - Referencia   : frame gris de referencia activo en ese instante.
+      - Diferencia   : absdiff entre frame y su referencia.
+      - Diff Refs    : absdiff entre la referencia actual y la anterior
+                       (útil para ver cuándo se actualizó la referencia).
+
+    Presionar cualquier tecla para cerrar.
+    """
+    if not video:
+        print("No hay frames para mostrar.")
+        return
+
+    T_FRAME    = "Frame"
+    T_REF      = "Referencia"
+    T_DIFF     = "Diferencia"
+    T_REF_DIFF = "Diff Referencias"
 
     def on_trackbar(x):
-        frame = video[x].copy()
-        gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        frame     = video[x].copy()
+        gris      = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frame_ref = referencias[x]
+
         diff = cv.absdiff(gris, frame_ref)
 
-        energia = energias[x]
+        if x > 0:
+            diff_refs    = cv.absdiff(frame_ref, referencias[x - 1])
+            energia_refs = get_energia(diff_refs)
+        else:
+            diff_refs    = np.zeros_like(frame_ref)
+            energia_refs = 0.0
+
+        energia      = energias[x]
         interrupcion = interrupciones[x]
+        color_int    = (0, 0, 255) if interrupcion else (0, 255, 0)
 
-        cv.putText(frame, f"Frame: {x}", (20, 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        cv.putText(frame, f"Energia: {energia:.2f}", (20, 65), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-        cv.putText(frame, f"Interrupcion: {interrupcion}", (20, 100), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255) if interrupcion else (0, 255, 0), 2)
+        cv.putText(frame, f"Frame: {x}",             (20, 30),  cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv.putText(frame, f"Energia: {energia:.2f}", (20, 65),  cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+        cv.putText(frame, f"Interr: {interrupcion}", (20, 100), cv.FONT_HERSHEY_SIMPLEX, 0.8, color_int,   2)
 
-        cv.imshow(title_frame, frame)
-        cv.imshow(title_ref, frame_ref)
-        cv.imshow(title_diff, diff)
+        diff_refs_vis = diff_refs.copy()
+        cv.putText(diff_refs_vis, f"E_ref: {energia_refs:.2f}", (20, 30),
+                   cv.FONT_HERSHEY_SIMPLEX, 0.8, 255, 2)
 
-    cv.namedWindow(title_frame)
-    cv.namedWindow(title_ref)
-    cv.namedWindow(title_diff)
+        cv.imshow(T_FRAME,    frame)
+        cv.imshow(T_REF,      frame_ref)
+        cv.imshow(T_DIFF,     diff)
+        cv.imshow(T_REF_DIFF, diff_refs_vis)
 
-    cv.createTrackbar("Frame", title_frame, 0, upper_cap_slider_max, on_trackbar)
+    for title in [T_FRAME, T_REF, T_DIFF, T_REF_DIFF]:
+        cv.namedWindow(title)
+
+    cv.createTrackbar("Frame", T_FRAME, 0, len(video) - 1, on_trackbar)
     on_trackbar(0)
-
     cv.waitKey()
     cv.destroyAllWindows()
 
 
-def ejecutar_foto_captura(vivo=True, url='', ms=500, actualizar_ref_ms=5000, N_estables=5, umbral=1500):
+# ══════════════════════════════════════════════════════════════════════════════
+# LOOP PRINCIPAL
+# ══════════════════════════════════════════════════════════════════════════════
+
+def ejecutar_foto_captura(
+    vivo=True,
+    url='',
+    ms=500,
+    actualizar_ref_ms=5000,
+    N_estables=5,
+    umbral=1500,
+    umbral_pieza=500,
+    lado=800,
+):
+    """Procesa un video detectando y aplicando movimientos de ajedrez.
+
+    Parámetros
+    ----------
+    vivo            : True → cámara (índice 0); False → archivo `url`.
+    ms              : milisegundos entre muestras de frames.
+    actualizar_ref_ms : tiempo mínimo (ms) desde el último refresco para
+                       considerar que pasó suficiente tiempo y puede haber
+                       habido un movimiento.
+    N_estables      : cantidad mínima de frames consecutivos sin interrupción
+                      para declarar el tablero "en reposo".
+    umbral          : energía global por encima de la cual se considera que
+                      hay movimiento en la escena (mano, pieza en el aire).
+    umbral_pieza    : energía mínima por celda para incluirla como candidata
+                      al movimiento detectado.
+    lado            : lado del tablero rectificado en píxeles.
+
+    Lógica de estados
+    -----------------
+    INTERRUPCIÓN → alguien está tocando el tablero (energía alta).
+    ESTABLE      → el tablero lleva N_estables frames quieto Y pasaron
+                   al menos actualizar_ref_ms ms desde la última referencia.
+                   En ese momento se procesa el movimiento y se actualiza
+                   la referencia para el próximo turno.
+
+    Devuelve (video, energias, interrupciones, referencias) para usar con
+    ver_por_frame() como herramienta de debug.
+    """
     cap = cv.VideoCapture(0 if vivo else url)
-
     if not cap.isOpened():
-        print(f"Error: No se pudo encontrar o leer el video en: {url}")
+        print(f"Error: no se pudo abrir la fuente: {url!r}")
         return [], [], [], []
-    
-    video = []
-    energias = []
+
+    video          = []
+    energias       = []
     interrupciones = []
-    referencias = []
+    referencias    = []
 
-    frame_ref = None
+    parser    = None
+    tablero   = None
+    frame_ref = None   # último frame gris tomado como referencia
 
-    if vivo:
-        ultimo_t = 0
+    # ── MODO OFFLINE ─────────────────────────────────────────────────────────
+    if not vivo:
+        t                  = 0
+        ultimo_refresco_ms = 0
+        frames_estables    = 0
+
+        while True:
+            cap.set(cv.CAP_PROP_POS_MSEC, t)
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+
+            # Descartar frames oscuros (inicio del video, tapa de la cámara, etc.)
+            if frame_ref is None:
+                if get_energia(gris) < 50:
+                    print(f"[{t} ms] Frame descartado por oscuridad.")
+                    t += ms
+                    continue
+                # Primer frame válido: inicializar tablero
+                try:
+                    parser, tablero = inicializar_tablero(gris, lado)
+                    frame_ref          = gris.copy()
+                    ultimo_refresco_ms = t
+                    print(f"[{t} ms] Referencia inicial establecida.")
+                except Exception as e:
+                    print(f"[{t} ms] Inicialización fallida: {e}. Reintentando...")
+                    t += ms
+                    continue
+
+            video.append(frame)
+            referencias.append(frame_ref.copy())
+
+            # Energía global del frame respecto a la referencia
+            energia      = get_energia(cv.absdiff(gris, frame_ref))
+            interrupcion = energia > umbral
+            energias.append(energia)
+            interrupciones.append(interrupcion)
+
+            if interrupcion:
+                frames_estables = 0
+            else:
+                frames_estables += 1
+
+            # Condición de estado estable: tablero quieto + tiempo suficiente
+            if (
+                not interrupcion
+                and t - ultimo_refresco_ms >= actualizar_ref_ms
+                and frames_estables >= N_estables
+            ):
+                print(f"\n[{t} ms] Estado estable — procesando movimiento.")
+                ref_nueva = gris.copy()
+
+                top4, _ = obtener_top_celdas(frame_ref, ref_nueva, parser, umbral_pieza)
+                print(f"  Top celdas: {top4}")
+
+                if len(top4) >= 2:
+                    inferir_movimiento(tablero, top4)
+
+                frame_ref          = ref_nueva
+                ultimo_refresco_ms = t
+                frames_estables    = 0
+
+            t += ms
+
+    # ── MODO EN VIVO ─────────────────────────────────────────────────────────
+    else:
+        ultimo_t        = 0
         ultimo_refresco = 0
         frames_estables = 0
 
@@ -74,65 +370,34 @@ def ejecutar_foto_captura(vivo=True, url='', ms=500, actualizar_ref_ms=5000, N_e
 
             ahora = time.perf_counter()
 
-            if (ahora - ultimo_t) * 1000 >= ms:
-                ultimo_t = ahora
-                video.append(frame)
-                gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
-                if frame_ref is None:
-                    frame_ref = gris.copy()
-                    ultimo_refresco = ahora
-
-                referencias.append(frame_ref.copy())
-                diff = cv.absdiff(gris, frame_ref)
-                energia = get_energia(diff)
-                energias.append(energia)
-
-                interrupcion = energia > umbral
-                interrupciones.append(interrupcion)
-
-                if interrupcion:
-                    frames_estables = 0
-                else:
-                    frames_estables += 1
-
-                tiempo_desde_refresco = (ahora - ultimo_refresco) * 1000
-
-                if (not interrupcion and tiempo_desde_refresco >= actualizar_ref_ms and frames_estables >= N_estables):
-                    frame_ref = gris.copy()
-                    ultimo_refresco = ahora
-                    frames_estables = 0
-                    print(f"Referencia actualizada ({N_estables} frames estables)")
-
-                print(f"E={energia:.2f} | Interrupcion={interrupcion} | Frames estables={frames_estables}")
-
+            # Mostrar el frame aunque no procesemos todavía
             cv.imshow("En vivo", frame)
             if cv.waitKey(1) & 0xFF == ord('c'):
                 break
 
-    else:
-        t = 0
-        ultimo_refresco_ms = 0
-        frames_estables = 0
+            if (ahora - ultimo_t) * 1000 < ms:
+                continue
 
-        while True:
-            cap.set(cv.CAP_PROP_POS_MSEC, t)
-            ret, frame = cap.read()
-            if not ret:
-                break
+            ultimo_t = ahora
+            gris     = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+
+            # Inicialización en el primer frame capturado
+            if frame_ref is None:
+                try:
+                    parser, tablero = inicializar_tablero(gris, lado)
+                    frame_ref       = gris.copy()
+                    ultimo_refresco = ahora
+                    print("Referencia inicial establecida (LIVE).")
+                except Exception as e:
+                    print(f"Inicialización fallida: {e}. Reintentando...")
+                    continue
 
             video.append(frame)
-            gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-
-            if frame_ref is None:
-                frame_ref = gris.copy()
-
             referencias.append(frame_ref.copy())
-            diff = cv.absdiff(gris, frame_ref)
-            energia = get_energia(diff)
-            energias.append(energia)
 
+            energia      = get_energia(cv.absdiff(gris, frame_ref))
             interrupcion = energia > umbral
+            energias.append(energia)
             interrupciones.append(interrupcion)
 
             if interrupcion:
@@ -140,23 +405,47 @@ def ejecutar_foto_captura(vivo=True, url='', ms=500, actualizar_ref_ms=5000, N_e
             else:
                 frames_estables += 1
 
-            if (not interrupcion and t - ultimo_refresco_ms >= actualizar_ref_ms and frames_estables >= N_estables):
-                frame_ref = gris.copy()
-                ultimo_refresco_ms = t
-                frames_estables = 0
-                print(f"Referencia actualizada en {t} ms ({N_estables} frames estables)")
+            tiempo_desde_refresco = (ahora - ultimo_refresco) * 1000
 
-            t += ms
+            if (
+                not interrupcion
+                and tiempo_desde_refresco >= actualizar_ref_ms
+                and frames_estables >= N_estables
+            ):
+                print("\n[LIVE] Estado estable — procesando movimiento.")
+                ref_nueva = gris.copy()
+
+                top4, _ = obtener_top_celdas(frame_ref, ref_nueva, parser, umbral_pieza)
+                print(f"  Top celdas: {top4}")
+
+                if len(top4) >= 2:
+                    inferir_movimiento(tablero, top4)
+
+                frame_ref       = ref_nueva
+                ultimo_refresco = ahora
+                frames_estables = 0
 
     cap.release()
     cv.destroyAllWindows()
-
     return video, energias, interrupciones, referencias
 
-if __name__ == '__main__':
-    
-    ruta = os.path.join(carpeta_data_raw, "Prueba1.mp4")
 
-    video, energias, interrupciones, referencias = ejecutar_foto_captura(vivo=False, url = ruta, ms=500, actualizar_ref_ms=2000, N_estables=3, umbral=500)
+# ══════════════════════════════════════════════════════════════════════════════
+# ENTRY POINT
+# ══════════════════════════════════════════════════════════════════════════════
+
+if __name__ == '__main__':
+    ruta = os.path.join(carpeta_data_raw, "prueba_rotado_90.mp4")
+
+    video, energias, interrupciones, referencias = ejecutar_foto_captura(
+        vivo=False,
+        url=ruta,
+        ms=500,
+        actualizar_ref_ms=200,
+        N_estables=2,
+        umbral=500,
+        umbral_pieza=600,
+    )
 
     ver_por_frame(video, energias, interrupciones, referencias)
+

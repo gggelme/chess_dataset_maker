@@ -7,6 +7,47 @@ import cv2
 # python src/parser/parser_table.py
 
 
+# ── Helpers de geometría (module-level) ──────────────────────────────────────
+
+def _sort_corners(pts):
+    """Ordena 4 esquinas en: top-left, bottom-left, bottom-right, top-right.
+
+    Necesario porque approxPolyDP devuelve los puntos en el orden del contorno
+    (arbitrario), y getPerspectiveTransform requiere correspondencia exacta con
+    pts_destino.  Sin este ordenamiento, H queda rotada o espejada.
+    """
+    pts = pts.reshape(4, 2).astype(np.float32)
+    s = pts.sum(axis=1)          # x+y
+    d = np.diff(pts, axis=1).ravel()  # y-x
+    return np.array([
+        pts[np.argmin(s)],   # top-left     min(x+y)
+        pts[np.argmax(d)],   # bottom-left  max(y-x)
+        pts[np.argmax(s)],   # bottom-right max(x+y)
+        pts[np.argmin(d)],   # top-right    min(y-x)
+    ], dtype=np.float32)
+
+
+# ── Helpers de rotación (module-level) ───────────────────────────────────────
+
+def _rotation_matrix(rotacion, lado):
+    """Devuelve la homografía 3×3 equivalente a la rotación de cv2.
+
+    Necesaria para actualizar H después de rotar el tablero rectificado,
+    de modo que H siga mapeando espacio-cámara → espacio-tablero-final.
+    """
+    if rotacion == cv2.ROTATE_180:
+        return np.array([[-1,  0, lado - 1],
+                          [ 0, -1, lado - 1],
+                          [ 0,  0,        1]], dtype=np.float64)
+    if rotacion == cv2.ROTATE_90_CLOCKWISE:
+        return np.array([[ 0,  1,        0],
+                          [-1,  0, lado - 1],
+                          [ 0,  0,        1]], dtype=np.float64)
+    return np.array([[ 0, -1, lado - 1],
+                      [ 1,  0,        0],
+                      [ 0,  0,        1]], dtype=np.float64)
+
+
 # ── Hough helpers (module-level) ─────────────────────────────────────────────
 
 def _unificar_lineas(lineas, umbral_rho=30, umbral_theta=np.pi / 180 * 15):
@@ -168,7 +209,7 @@ class ParserTable:
         if self.esquinas is None:
             self.detect_board_corners()
 
-        pts_origen = self.esquinas.reshape(4, 2).astype(np.float32)
+        self._pts_origen = _sort_corners(self.esquinas)
         pts_destino = np.array([
             [0,    0   ],
             [0,    lado],
@@ -176,7 +217,7 @@ class ParserTable:
             [lado, 0   ],
         ], dtype=np.float32)
 
-        self.H = cv2.getPerspectiveTransform(pts_origen, pts_destino)
+        self.H = cv2.getPerspectiveTransform(self._pts_origen, pts_destino)
         # Transformar directamente la imagen HSV generada en el constructor
         self.tablero_hsv = cv2.warpPerspective(self._imagen_hsv, self.H, (lado, lado))
         return self.tablero_hsv
@@ -206,8 +247,32 @@ class ParserTable:
             rotacion = cv2.ROTATE_90_CLOCKWISE if media_der >= media_izq \
                        else cv2.ROTATE_90_COUNTERCLOCKWISE
 
+        _ROT_NOMBRE = {None: 'None', cv2.ROTATE_180: '180°',
+                       cv2.ROTATE_90_CLOCKWISE: '90°CW',
+                       cv2.ROTATE_90_COUNTERCLOCKWISE: '90°CCW'}
+        print(f"[orient] arr={media_arriba:.0f} ab={media_abajo:.0f} "
+              f"izq={media_izq:.0f} der={media_der:.0f} | "
+              f"dv={diff_vert:.0f} dh={diff_horiz:.0f} → {_ROT_NOMBRE[rotacion]}")
+
         if rotacion is not None:
             self.tablero_hsv = cv2.rotate(self.tablero_hsv, rotacion)
+            if self.H is not None:
+                if rotacion == cv2.ROTATE_180:
+                    R = _rotation_matrix(rotacion, lado)
+                    self.H = R @ self.H
+                elif hasattr(self, '_pts_origen'):
+                    # Para rotaciones de 90°, recomputar H transformando los puntos
+                    # destino directamente (evita errores en la composición de matrices).
+                    # CW: (x,y) → (lado-y, x);  CCW: (x,y) → (y, lado-x)
+                    if rotacion == cv2.ROTATE_90_CLOCKWISE:
+                        dest_rot = np.array(
+                            [[lado, 0], [0, 0], [0, lado], [lado, lado]],
+                            dtype=np.float32)
+                    else:  # ROTATE_90_COUNTERCLOCKWISE
+                        dest_rot = np.array(
+                            [[0, lado], [lado, lado], [lado, 0], [0, 0]],
+                            dtype=np.float32)
+                    self.H = cv2.getPerspectiveTransform(self._pts_origen, dest_rot)
 
         return self.tablero_hsv
 
@@ -279,7 +344,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_vertical_real.jpg")
+    ruta = os.path.join(BASE, "../../data/raw/prueba_rotado_90.mp4")
 
     img_gris = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
     parser = ParserTable(img_gris)
