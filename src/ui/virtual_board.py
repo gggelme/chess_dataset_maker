@@ -8,7 +8,13 @@ class LiveBoard:
     def __init__(self, tamano_celda=80):
         self.tamano_celda = tamano_celda
         self.ancho_tablero = tamano_celda * 8
+        self.ancho_panel = 250  # Espacio para el reloj y turnos
         self.corriendo = True
+        
+        # Variables de estado del juego
+        self.turno = 1  # 1 (Blancas) o -1 (Negras)
+        self.tiempos = {1: 0.0, -1: 0.0}
+        self.matriz_anterior = None
         
         # Configuración de rutas
         self.dir_actual = os.path.dirname(os.path.abspath(__file__))
@@ -21,11 +27,32 @@ class LiveBoard:
            -1: 'bP.png', -2: 'bN.png', -3: 'bB.png', -4: 'bR.png', -5: 'bK.png', -6: 'bQ.png',
         }
         
-        # Inicialización de Pygame
+        # Inicialización
         pygame.init()
-        self.pantalla = pygame.display.set_mode((self.ancho_tablero, self.ancho_tablero))
-        pygame.display.set_caption("Tablero Digital en Tiempo Real")
+        pygame.font.init()
+        self.fuente = pygame.font.SysFont("Consolas", 22, bold=True)
+        self.fuente_chica = pygame.font.SysFont("Consolas", 18)
+
+        # Pantalla más ancha para incluir el panel
+        self.pantalla = pygame.display.set_mode((self.ancho_tablero + self.ancho_panel, self.ancho_tablero))
+        pygame.display.set_caption("Tablero en Tiempo Real")
         self.assets = self._cargar_assets()
+        
+        self.ultimo_tick = pygame.time.get_ticks()
+
+
+    def _inferir_turno(self, matriz_nueva):
+        """Infiere el turno viendo qué pieza desapareció de su origen."""
+        if self.matriz_anterior is not None:
+            # Buscamos la coordenada donde antes había una pieza y ahora hay un 0
+            cambios = np.where((self.matriz_anterior != 0) & (matriz_nueva == 0))
+            if len(cambios[0]) > 0:
+                pieza_movida = self.matriz_anterior[cambios[0][0], cambios[1][0]]
+                # Si movió una blanca (>0), pasa el turno a negras (-1) y viceversa
+                self.turno = -1 if pieza_movida > 0 else 1
+                
+        self.matriz_anterior = matriz_nueva.copy()
+
 
     def _cargar_assets(self):
         """Método privado para cargar las imágenes una sola vez al instanciar la clase."""
@@ -43,19 +70,55 @@ class LiveBoard:
 
         return assets
 
+
+    def _dibujar_panel(self):
+        # Fondo oscuro y moderno para el panel
+        color_fondo = (40, 44, 52)
+        rect_panel = pygame.Rect(self.ancho_tablero, 0, self.ancho_panel, self.ancho_tablero)
+        pygame.draw.rect(self.pantalla, color_fondo, rect_panel)
+
+        # Título superior
+        txt_turno = self.fuente.render("CONTROL DE TIEMPO", True, (171, 178, 191))
+        self.pantalla.blit(txt_turno, (self.ancho_tablero + 25, 30))
+
+        # Función interna para dibujar cada "caja" de reloj
+        def dibujar_reloj(y, titulo, tiempo, activo):
+            # Si es el turno de este jugador, la caja resalta
+            color_caja = (50, 168, 82) if activo else (59, 64, 72)
+            color_texto = (255, 255, 255) if activo else (171, 178, 191)
+
+            caja = pygame.Rect(self.ancho_tablero + 25, y, 200, 80)
+            pygame.draw.rect(self.pantalla, color_caja, caja, border_radius=12)
+
+            m, s = divmod(int(tiempo), 60)
+            texto_jugador = self.fuente_chica.render(titulo, True, color_texto)
+            texto_tiempo = self.fuente.render(f"{m:02d}:{s:02d}", True, color_texto)
+            
+            # Centrar textos dentro de la caja
+            self.pantalla.blit(texto_jugador, (caja.x + 15, caja.y + 15))
+            self.pantalla.blit(texto_tiempo, (caja.x + 15, caja.y + 40))
+
+        # Dibujar las dos cajas
+        dibujar_reloj(100, "Blancas", self.tiempos[1], self.turno == 1)
+        dibujar_reloj(200, "Negras", self.tiempos[-1], self.turno == -1)
+
+
     def actualizar(self, matriz):
-        """
-        Recibe la matriz actualizada, procesa la ventana y la dibuja.
-        Retorna True si la ventana sigue abierta, False si se cerró.
-        """
         if not isinstance(matriz, np.ndarray):
-            raise TypeError(f"Se esperaba un numpy.ndarray, pero se recibió {type(matriz).__name__}. "
-                            "Asegurate de convertir tu lista usando np.array(tu_lista).")
+            raise TypeError("Se esperaba un numpy.ndarray.")
         
-        # -------------------------
+        if not self.corriendo: return False
+
+        # Actualizar reloj
+        ahora = pygame.time.get_ticks()
+        dt = (ahora - self.ultimo_tick) / 1000.0  
+        self.ultimo_tick = ahora
         
-        if not self.corriendo:
-            return False
+        # Sumamos el tiempo al jugador que tiene el turno
+        self.tiempos[self.turno] += dt
+
+        # Inferir si hubo cambio de turno
+        self._inferir_turno(matriz)
 
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
@@ -63,17 +126,17 @@ class LiveBoard:
                 pygame.quit()
                 return False
 
-        # 1. Dibujar TODO el tablero de fondo de una sola vez
+        # Dibujado general
         self.pantalla.blit(self.assets['fondo'], (0, 0))
+        
+        # Dibujar piezas (usando np.nonzero para mayor eficiencia)
+        filas, cols = np.nonzero(matriz)
+        for f, c in zip(filas, cols):
+            pieza = matriz[f, c]
+            self.pantalla.blit(self.assets[pieza], (c * self.tamano_celda, f * self.tamano_celda))
 
-        # 2. Dibujar únicamente las piezas donde corresponda
-        for fila in range(8):
-            for col in range(8):
-                pieza = matriz[fila, col]
-                if pieza != 0:
-                    x = col * self.tamano_celda
-                    y = fila * self.tamano_celda
-                    self.pantalla.blit(self.assets[pieza], (x, y))
+        # Dibujar el panel UI
+        self._dibujar_panel()
 
         pygame.display.flip()
         return True

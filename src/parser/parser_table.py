@@ -374,8 +374,9 @@ class ParserTable:
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
+    
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/prueba_rotado_90.mp4")
+    ruta = os.path.join(BASE, "../../data/raw/tablero_270.png")
 
     img_gris = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
     parser = ParserTable(img_gris)

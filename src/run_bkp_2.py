@@ -3,28 +3,31 @@ import time
 import os
 import sys
 
-# python src/run.py  (ejecutar desde la raíz del proyecto)
+# python src/run_bkp_2.py  (ejecutar desde la raíz del proyecto)
 
 dir_src  = os.path.dirname(os.path.abspath(__file__))
 dir_raiz = os.path.dirname(dir_src)
 
-sys.path.insert(0, dir_src)
+#sys.path.insert(0, dir_src)
 
-from parser.detect_movements import (
-    get_energia, inicializar_tablero, obtener_top_celdas, inferir_movimiento,
+sys.path.insert(0, dir_raiz)
+
+from src.parser.detect_movements import (
+    get_energia, inicializar_tablero,
+    obtener_celdas_cambiadas, inferir_movimiento, chess_board_a_matriz, obtener_top_celdas
 )
 from ui.virtual_board import LiveBoard
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 VIVO            = False
-URL             = os.path.join(dir_raiz, "data", "raw", "partida_larga_normal.mp4")
+URL             = os.path.join(dir_raiz, "data", "raw", "Prueba_Completa.mp4")
 MS_MUESTREO     = 250    # cada cuántos ms se analiza un frame
 MS_MIN_REFRESCO = 2000   # mínimo entre detecciones — 2s evita re-detecciones falsas
 N_ESTABLES      = 2      # frames quietos consecutivos para declarar reposo
 UMBRAL          = 300    # energía que indica movimiento/mano en escena
 UMBRAL_MINIMO   = 25     # por debajo de esto el tablero no cambió nada real (ruido ~8-10)
-UMBRAL_PIEZA    = 200    # energía mínima por celda para considerarla candidata
+UMBRAL_PIEZA    = 100    # energía mínima por celda para considerarla candidata
 LADO            = 800    # lado del tablero rectificado en píxeles
 
 

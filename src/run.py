@@ -9,24 +9,25 @@ import sys
 dir_src  = os.path.dirname(os.path.abspath(__file__))
 dir_raiz = os.path.dirname(dir_src)
 
-sys.path.insert(0, dir_src)
+sys.path.insert(0, dir_raiz)
 
-from parser.detect_movements import (
+from src.parser.detect_movements import (
     get_energia, inicializar_tablero,
     obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,
 )
+from src.parser.elements.board import Board as HistorialBoard
 from ui.virtual_board import LiveBoard
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 VIVO            = False
-URL             = os.path.join(dir_raiz, "data", "raw", "Prueba_Completa.mp4")
+URL             = os.path.join(dir_raiz, "data", "raw", "partida_larga_normal.mp4")
 MS_MUESTREO     = 250    # cada cuántos ms se analiza un frame
 MS_MIN_REFRESCO = 1000   # cooldown post-detección (ms)
 N_ESTABLES      = 2      # frames quietos consecutivos para declarar reposo
 UMBRAL          = 300    # energía que indica movimiento/mano en escena
 UMBRAL_MINIMO   = 25     # por debajo de esto el tablero no cambió nada real (ruido ~8-10)
-UMBRAL_PIEZA    = 200    # energía mínima por celda para considerarla candidata
+UMBRAL_PIEZA    = 100    # energía mínima por celda para considerarla candidata
 LADO            = 800    # lado del tablero rectificado en píxeles
 
 
@@ -59,6 +60,7 @@ def main():
 
     parser            = None
     board_logico      = None   # chess.Board: fuente de verdad del estado de la partida
+    historial_board   = None   # Board local para guardar el historial NAL
     frame_ref         = None
     live_board        = None
     ultimo_t          = 0.0
@@ -98,12 +100,14 @@ def main():
                 # posición inicial estándar (blancas mueven primero).
                 parser, _ = inicializar_tablero(gris, LADO)
                 board_logico    = chess.Board()
+                historial_board  = HistorialBoard(nueva_partida=True,
+                                                 imagen_rectificada=None,
+                                                 y_pos=None,
+                                                 x_pos=None)
                 frame_ref       = gris.copy()
                 ultimo_refresco = ahora
                 live_board = LiveBoard()
                 live_board.actualizar(chess_board_a_matriz(board_logico))
-                tablero_bgr = cv.cvtColor(parser.tablero_hsv, cv.COLOR_HSV2BGR)
-                cv.imshow("Tablero rectificado", tablero_bgr)
                 print("Tablero inicializado.")
             except Exception as e:
                 print(f"Inicialización fallida: {e}. Reintentando...")
@@ -163,7 +167,17 @@ def main():
                           _dibujar_energia(diff_warp, energias_celdas,
                                            parser.y_pos, parser.x_pos, UMBRAL_PIEZA))
 
-                inferir_movimiento_legal(board_logico, cambiadas, energias_celdas)
+                mov = inferir_movimiento_legal(board_logico, cambiadas, energias_celdas)
+                if mov is not None and historial_board is not None:
+                    from_sq = mov.from_square
+                    to_sq = mov.to_square
+                    fila_o = 7 - chess.square_rank(from_sq)
+                    col_o = chess.square_file(from_sq)
+                    fila_d = 7 - chess.square_rank(to_sq)
+                    col_d = chess.square_file(to_sq)
+                    origen = historial_board._idx_a_algebraica(fila_o, col_o)
+                    destino = historial_board._idx_a_algebraica(fila_d, col_d)
+                    historial_board.historial_NAL.append(f"{origen}-{destino}")
 
                 print(chess_board_a_matriz(board_logico))
                 live_board.actualizar(chess_board_a_matriz(board_logico))
@@ -187,6 +201,9 @@ def main():
                 # Energía elevada por deriva de cámara/luz, sin interrupción previa.
                 # No se actualiza frame_ref; se espera a que la energía baje.
                 post_interrupcion = False
+
+    if historial_board is not None:
+        historial_board.guardar_historial()
 
     cap.release()
     cv.destroyAllWindows()
