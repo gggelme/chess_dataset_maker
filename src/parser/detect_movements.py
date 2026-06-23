@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+import chess
 import time
 import os
 import sys
@@ -122,6 +123,23 @@ def obtener_top_celdas(frame_ref_gris, frame_nuevo_gris, parser, umbral_pieza):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# VALIDACIÓN PREVIA DE DETECCIÓN
+# ══════════════════════════════════════════════════════════════════════════════
+
+def hay_origen_valido(tablero, top4):
+    """Verifica que al menos una celda de top4 tenga pieza del turno actual.
+
+    Si ninguna celda candidata tiene pieza del jugador en turno, la detección
+    es un falso positivo (ruido, sombra, reflejo) y no debe procesarse.
+    Devuelve True si hay al menos un origen posible, False si no hay ninguno.
+    """
+    return any(
+        tablero.piezas[i][j] is not None and tablero.piezas[i][j].color == tablero.turno
+        for i, j in top4
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # INFERENCIA Y EJECUCIÓN DEL MOVIMIENTO
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -169,6 +187,194 @@ def inferir_movimiento(tablero, top4):
 
     print("  Ninguna combinación de origen×destino resultó válida.")
     return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# LÓGICA CON python-chess  (puerto de LegalMoveDetector.calculate_move)
+# ══════════════════════════════════════════════════════════════════════════════
+#
+# En lugar de leer la ocupación de cada celda con una CNN (como el proyecto
+# original con ChessImageClassifier), usamos la ENERGÍA por celda como detector
+# de "qué celdas cambiaron". Sobre ese conjunto de celdas cambiadas aplicamos la
+# misma lógica de despacho por patrón + validación de legalidad, pero con
+# python-chess como motor (jaque, clavadas, enroque, al paso y promoción).
+#
+# Convención de coordenadas (idéntica al proyecto original):
+#   matriz[fila][col]:  fila 0 = arriba (negras),  fila 7 = abajo (blancas)
+#   col 0 = columna 'a',  col 7 = columna 'h'
+#   square = chess.square(col, 7 - fila)  →  8*(7-fila) + col
+#   UCI    = 'abcdefgh'[col] + str(8 - fila)
+
+# peon=1 caballo=2 alfil=3 torre=4 (en nuestra matriz rey=5 reina=6; ojo que en
+# python-chess QUEEN=5 KING=6, por eso el remapeo explícito).
+_TIPO_CHESS_A_VALOR = {
+    chess.PAWN:   1,
+    chess.KNIGHT: 2,
+    chess.BISHOP: 3,
+    chess.ROOK:   4,
+    chess.QUEEN:  6,
+    chess.KING:   5,
+}
+
+
+def celda_a_square(fila, col):
+    """(fila, col) de nuestra matriz → índice de casilla de python-chess."""
+    return chess.square(col, 7 - fila)
+
+
+def celda_a_uci(fila, col):
+    """(fila, col) de nuestra matriz → string algebraico, p. ej. (6,4) → 'e2'."""
+    return "abcdefgh"[col] + str(8 - fila)
+
+
+def chess_board_a_matriz(board_logico):
+    """Convierte un chess.Board a la matriz 8×8 que consume LiveBoard.
+
+    Mantener el chess.Board como única fuente de verdad y derivar la matriz de
+    él evita tener que sincronizar dos motores de reglas distintos (el enroque,
+    el al paso y la promoción se aplican una sola vez, dentro de python-chess).
+    """
+    matriz = np.zeros((8, 8), dtype=int)
+    for square, pieza in board_logico.piece_map().items():
+        fila  = 7 - chess.square_rank(square)
+        col   = chess.square_file(square)
+        valor = _TIPO_CHESS_A_VALOR[pieza.piece_type]
+        matriz[fila][col] = valor if pieza.color == chess.WHITE else -valor
+    return matriz
+
+
+def obtener_celdas_cambiadas(frame_ref_gris, frame_nuevo_gris, parser,
+                             umbral_pieza, max_celdas=6):
+    """Celdas del tablero cuya energía superó `umbral_pieza` entre dos frames.
+
+    Igual que obtener_top_celdas pero pensado para la lógica con python-chess:
+    devuelve TODAS las celdas que cambiaron (hasta `max_celdas`, ordenadas por
+    energía descendente). El límite acota la explosión combinatoria al armar
+    pares origen×destino y deja margen para el enroque (4 celdas cambian).
+
+    Devuelve:
+      cambiadas : lista de (fila, col) ordenada por energía desc.
+      ENERGIAS  : np.array (8, 8) con la energía de cada celda (para debug/visor).
+    """
+    y_pos = parser.y_pos
+    x_pos = parser.x_pos
+    lado  = parser.tablero_hsv.shape[0]
+
+    diferencia      = cv.absdiff(frame_nuevo_gris, frame_ref_gris)
+    diferencia_warp = _warp_diferencia(diferencia, parser.H, lado)
+
+    ENERGIAS = np.zeros((8, 8), dtype=np.float32)
+    for i in range(8):
+        for j in range(8):
+            y1, y2 = y_pos[i], y_pos[i + 1]
+            x1, x2 = x_pos[j], x_pos[j + 1]
+            ENERGIAS[i, j] = get_energia(diferencia_warp[y1:y2, x1:x2])
+
+    flat    = ENERGIAS.ravel()
+    validos = np.where(flat > umbral_pieza)[0]
+    if len(validos) == 0:
+        return [], ENERGIAS
+
+    ordenados = validos[np.argsort(flat[validos])[::-1]][:max_celdas]
+    cambiadas = [(int(idx // 8), int(idx % 8)) for idx in ordenados]
+    return cambiadas, ENERGIAS
+
+
+def _celdas_afectadas(board_logico, mov):
+    """Conjunto de celdas (fila, col) cuya pieza cambia al aplicar `mov`.
+
+    Simula el movimiento y compara el mapa de piezas antes/después. Sirve como
+    desempate: el movimiento correcto "explica" las celdas que la energía marcó
+    como cambiadas. El enroque afecta 4 celdas (rey + torre), el al paso 3
+    (origen + destino + peón capturado), una captura/movida normal 2.
+    """
+    def _simbolos(b):
+        return {sq: pieza.symbol() for sq, pieza in b.piece_map().items()}
+
+    antes = _simbolos(board_logico)
+    board_logico.push(mov)
+    despues = _simbolos(board_logico)
+    board_logico.pop()
+
+    afectadas = set()
+    for sq in set(antes) | set(despues):
+        if antes.get(sq) != despues.get(sq):
+            fila = 7 - chess.square_rank(sq)
+            col  = chess.square_file(sq)
+            afectadas.add((fila, col))
+    return afectadas
+
+
+def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
+    """Deduce el movimiento jugado y lo aplica al chess.Board (puerto de calculate_move).
+
+    Dado el conjunto de celdas que cambiaron (por energía), arma todos los pares
+    origen->destino donde el origen tiene una pieza del lado a mover, y se queda
+    con los que python-chess considera LEGALES. Cubre, sin casos especiales, el
+    movimiento normal, la captura, el enroque, el al paso y la promoción
+    (default: dama).
+
+    Si hay varios movimientos legales, desempata por (1) cuántas de las celdas
+    cambiadas explica cada uno y (2) energía combinada. Así el enroque (explica
+    rey + torre = 4 celdas) gana sobre una movida simple de rey que dejaría
+    celdas cambiadas sin justificar.
+
+    Devuelve el chess.Move aplicado, o None si no hubo ninguno legal.
+    """
+    if len(cambiadas) < 2:
+        print(f"  Menos de 2 celdas cambiadas ({cambiadas}); no se infiere.")
+        return None
+
+    turno  = board_logico.turn  # chess.WHITE (True) / chess.BLACK (False)
+    nombre = "blanco" if turno == chess.WHITE else "negro"
+    set_cambiadas = set(cambiadas)
+
+    # Orígenes posibles: celdas cambiadas con una pieza del lado a mover.
+    origenes = []
+    for (fila, col) in cambiadas:
+        pieza = board_logico.piece_at(celda_a_square(fila, col))
+        if pieza is not None and pieza.color == turno:
+            origenes.append((fila, col))
+
+    if not origenes:
+        print(f"  Sin origenes del lado {nombre} entre {cambiadas}.")
+        return None
+
+    candidatos = []  # (celdas_explicadas, energia_combinada, chess.Move)
+    for (fo, co) in origenes:
+        e_o = float(energias_celdas[fo, co])
+        for (fd, cd) in cambiadas:
+            if (fd, cd) == (fo, co):
+                continue
+            e_d      = float(energias_celdas[fd, cd])
+            base_uci = celda_a_uci(fo, co) + celda_a_uci(fd, cd)
+            # '' cubre movimiento/captura/enroque/al paso; los sufijos, la
+            # promocion (se prueba dama primero, que es lo mas frecuente).
+            for sufijo in ("", "q", "r", "b", "n"):
+                try:
+                    mov = chess.Move.from_uci(base_uci + sufijo)
+                except ValueError:
+                    continue
+                if mov in board_logico.legal_moves:
+                    explica = len(_celdas_afectadas(board_logico, mov) & set_cambiadas)
+                    candidatos.append((explica, e_o + e_d, mov))
+                    break
+
+    if not candidatos:
+        print(f"  Ningun movimiento legal entre {cambiadas} (turno={nombre}).")
+        return None
+
+    candidatos.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    mejor  = candidatos[0][2]
+    unicos = {m.uci() for _, _, m in candidatos}
+    if len(unicos) > 1:
+        print(f"  Ambiguo {unicos} -> elijo {mejor.uci()} (explica/energia)")
+
+    san = board_logico.san(mejor)
+    board_logico.push(mejor)
+    siguiente = "blanco" if board_logico.turn == chess.WHITE else "negro"
+    print(f"  OK -- {mejor.uci()} ({san}) | turno ahora: {siguiente}")
+    return mejor
 
 
 # ══════════════════════════════════════════════════════════════════════════════
