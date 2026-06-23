@@ -1,0 +1,35 @@
+{
+  "jugador": "negras",
+  "movimientos": [
+    {
+      "numero": 1,
+      "jugada": "h5",
+      "uci": "h7h5",
+      "recomendado": "d5  +129"
+    },
+    {
+      "numero": 2,
+      "jugada": "Rh6",
+      "uci": "h8h6",
+      "recomendado": "hxg4  +277"
+    },
+    {
+      "numero": 3,
+      "jugada": "e6",
+      "uci": "e7e6",
+      "recomendado": "hxg4  +226"
+    },
+    {
+      "numero": 4,
+      "jugada": "Qe7",
+      "uci": "d8e7",
+      "recomendado": "hxg4  +257"
+    },
+    {
+      "numero": 5,
+      "jugada": "Na6",
+      "uci": "b8a6",
+      "recomendado": "Qd8  -134"
+    }
+  ]
+}

@@ -5,3 +5,5 @@ Env/
 env/
 
 data/raw/Chess Pieces Recognition/
+
+models/

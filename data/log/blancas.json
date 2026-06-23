@@ -1,0 +1,41 @@
+{
+  "jugador": "blancas",
+  "movimientos": [
+    {
+      "numero": 1,
+      "jugada": "g4",
+      "uci": "g2g4",
+      "recomendado": null
+    },
+    {
+      "numero": 2,
+      "jugada": "Nf3",
+      "uci": "g1f3",
+      "recomendado": "g5  -53"
+    },
+    {
+      "numero": 3,
+      "jugada": "b3",
+      "uci": "b2b3",
+      "recomendado": "g5  +120"
+    },
+    {
+      "numero": 4,
+      "jugada": "Ba3",
+      "uci": "c1a3",
+      "recomendado": "g5  +92"
+    },
+    {
+      "numero": 5,
+      "jugada": "d4",
+      "uci": "d2d4",
+      "recomendado": "Bxe7  +546"
+    },
+    {
+      "numero": 6,
+      "jugada": "Qd3",
+      "uci": "d1d3",
+      "recomendado": "Bxe7  +557"
+    }
+  ]
+}

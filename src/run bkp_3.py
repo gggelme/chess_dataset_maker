@@ -17,19 +17,17 @@ from src.parser.detect_movements import (
 )
 from src.parser.elements.board import Board as HistorialBoard
 from ui.virtual_board import LiveBoard
-from ui.stockfish_advisor import StockfishAdvisor
-from data_logger import GameLogger
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
 VIVO            = False
-URL             = os.path.join(dir_raiz, "data", "raw", "partida_larga_normal.mp4")
+URL             = os.path.join(dir_raiz, "data", "raw", "Prueba_Completa.mp4")
 MS_MUESTREO     = 250    # cada cuántos ms se analiza un frame
 MS_MIN_REFRESCO = 1000   # cooldown post-detección (ms)
 N_ESTABLES      = 2      # frames quietos consecutivos para declarar reposo
 UMBRAL          = 300    # energía que indica movimiento/mano en escena
 UMBRAL_MINIMO   = 25     # por debajo de esto el tablero no cambió nada real (ruido ~8-10)
-UMBRAL_PIEZA    = 50    # energía mínima por celda para considerarla candidata
+UMBRAL_PIEZA    = 100    # energía mínima por celda para considerarla candidata
 LADO            = 800    # lado del tablero rectificado en píxeles
 
 
@@ -62,11 +60,9 @@ def main():
 
     parser            = None
     board_logico      = None   # chess.Board: fuente de verdad del estado de la partida
-    historial_board   = None
+    historial_board   = None   # Board local para guardar el historial NAL
     frame_ref         = None
     live_board        = None
-    advisor           = None   # StockfishAdvisor (se crea junto con live_board)
-    logger            = None   # GameLogger — escribe blancas.json y negras.json
     ultimo_t          = 0.0
     ultimo_refresco   = 0.0
     frames_estables   = 0
@@ -83,11 +79,8 @@ def main():
         if cv.waitKey(25) & 0xFF == ord('q'):
             break
 
-        if live_board is not None:
-            if advisor is not None:
-                live_board.sugerencias = advisor.get_sugerencias()
-            if not live_board.actualizar(chess_board_a_matriz(board_logico)):
-                break
+        if live_board is not None and not live_board.actualizar(chess_board_a_matriz(board_logico)):
+            break
 
         ahora = time.perf_counter() * 1000  # ms
         if ahora - ultimo_t < MS_MUESTREO:
@@ -115,12 +108,6 @@ def main():
                 ultimo_refresco = ahora
                 live_board = LiveBoard()
                 live_board.actualizar(chess_board_a_matriz(board_logico))
-                try:
-                    advisor = StockfishAdvisor()
-                    print("Stockfish listo.")
-                except Exception as e:
-                    print(f"Stockfish no disponible: {e}")
-                logger = GameLogger(os.path.join(dir_raiz, "data", "log"))
                 print("Tablero inicializado.")
             except Exception as e:
                 print(f"Inicialización fallida: {e}. Reintentando...")
@@ -180,20 +167,7 @@ def main():
                           _dibujar_energia(diff_warp, energias_celdas,
                                            parser.y_pos, parser.x_pos, UMBRAL_PIEZA))
 
-                # Capturar estado PRE-jugada para el log y la SAN
-                board_antes  = board_logico.copy()
-                turno_antes  = board_logico.turn
-                clave_sug    = 'blancas' if turno_antes == chess.WHITE else 'negras'
-                sug_anterior = live_board.sugerencias.get(clave_sug) if live_board else None
-
                 mov = inferir_movimiento_legal(board_logico, cambiadas, energias_celdas)
-
-                if mov is not None and logger is not None:
-                    san = board_antes.san(mov)
-                    logger.registrar(turno_antes, san, mov.uci(), sug_anterior)
-
-                if mov is not None and advisor is not None:
-                    advisor.analizar_async(board_logico)
                 if mov is not None and historial_board is not None:
                     from_sq = mov.from_square
                     to_sq = mov.to_square
@@ -230,8 +204,6 @@ def main():
 
     if historial_board is not None:
         historial_board.guardar_historial()
-    if advisor is not None:
-        advisor.cerrar()
 
     cap.release()
     cv.destroyAllWindows()
