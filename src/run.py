@@ -13,9 +13,8 @@ sys.path.insert(0, dir_raiz)
 
 from src.parser.detect_movements import (
     get_energia, inicializar_tablero,
-    obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,
-)
-from src.parser.elements.board import Board as HistorialBoard
+    obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
+
 from ui.virtual_board import LiveBoard
 from ui.stockfish_advisor import StockfishAdvisor
 from data_logger import GameLogger
@@ -62,7 +61,6 @@ def main():
 
     parser            = None
     board_logico      = None   # chess.Board: fuente de verdad del estado de la partida
-    historial_board   = None
     frame_ref         = None
     live_board        = None
     advisor           = None   # StockfishAdvisor (se crea junto con live_board)
@@ -89,7 +87,7 @@ def main():
             if not live_board.actualizar(chess_board_a_matriz(board_logico)):
                 break
 
-        ahora = time.perf_counter() * 1000  # ms
+        ahora = time.perf_counter() * 1000 
         if ahora - ultimo_t < MS_MUESTREO:
             continue
         ultimo_t = ahora
@@ -101,16 +99,8 @@ def main():
             if get_energia(gris) < 50:
                 continue
             try:
-                # inicializar_tablero detecta el tablero y arma el parser (H, grilla).
-                # El Board que devuelve no se usa para la lógica: el estado de la
-                # partida lo lleva board_logico (chess.Board), que arranca en la
-                # posición inicial estándar (blancas mueven primero).
-                parser, _ = inicializar_tablero(gris, LADO)
+                parser = inicializar_tablero(gris, LADO)
                 board_logico    = chess.Board()
-                historial_board  = HistorialBoard(nueva_partida=True,
-                                                 imagen_rectificada=None,
-                                                 y_pos=None,
-                                                 x_pos=None)
                 frame_ref       = gris.copy()
                 ultimo_refresco = ahora
                 live_board = LiveBoard()
@@ -133,7 +123,7 @@ def main():
         if interrupcion:
             frames_estables   = 0
             post_interrupcion = True
-            pendiente_ref     = False  # nueva jugada: cancelar limpieza pendiente
+            pendiente_ref     = False
             if ultimo_estado != 'interrupcion':
                 print(f"[{ahora:.0f}ms] INTERRUPCION  energia={energia:.1f}")
                 ultimo_estado = 'interrupcion'
@@ -145,10 +135,7 @@ def main():
                       f"dt_ref={ahora-ultimo_refresco:.0f}ms")
                 ultimo_estado = 'estable'
 
-        # ── Limpieza de referencia pendiente (cada tick quieto, sin esperar dt_ref) ──
-        # Después de una detección, el tablero puede tardar en asentarse. Este bloque
-        # actualiza frame_ref en cuanto la energía baja lo suficiente, sin importar
-        # cuánto tiempo pasó desde la última detección.
+        # ── Limpieza de referencia pendiente ────────────────────────────────── 
         if pendiente_ref and not interrupcion and not post_interrupcion:
             if energia < UMBRAL_MINIMO:
                 frame_ref       = gris.copy()
@@ -158,11 +145,9 @@ def main():
                 print(f"  [ref asentada  energia={energia:.1f}]")
 
         # ── Detección / Refresco (gated por cooldown) ─────────────────────────
-        elif (
-            not interrupcion
+        elif (not interrupcion
             and ahora - ultimo_refresco >= MS_MIN_REFRESCO
-            and frames_estables >= N_ESTABLES
-        ):
+            and frames_estables >= N_ESTABLES):
             if post_interrupcion and energia >= UMBRAL_MINIMO:
                 # ── Jugada detectada ─────────────────────────────────────────
                 print(f"\n>>> DETECCION  energia={energia:.1f}  "
@@ -194,42 +179,29 @@ def main():
 
                 if mov is not None and advisor is not None:
                     advisor.analizar_async(board_logico)
-                if mov is not None and historial_board is not None:
-                    from_sq = mov.from_square
-                    to_sq = mov.to_square
-                    fila_o = 7 - chess.square_rank(from_sq)
-                    col_o = chess.square_file(from_sq)
-                    fila_d = 7 - chess.square_rank(to_sq)
-                    col_d = chess.square_file(to_sq)
-                    origen = historial_board._idx_a_algebraica(fila_o, col_o)
-                    destino = historial_board._idx_a_algebraica(fila_d, col_d)
-                    historial_board.historial_NAL.append(f"{origen}-{destino}")
 
-                print(chess_board_a_matriz(board_logico))
-                live_board.actualizar(chess_board_a_matriz(board_logico))
+                if mov is not None:
+                    print(chess_board_a_matriz(board_logico))
+                    live_board.actualizar(chess_board_a_matriz(board_logico))
 
                 frame_ref         = ref_nueva
                 ultimo_refresco   = ahora
                 frames_estables   = 0
                 post_interrupcion = False
-                pendiente_ref     = True   # pedir limpieza cuando el tablero se asiente
+                pendiente_ref     = True
                 ultimo_estado     = None
 
             elif energia < UMBRAL_MINIMO:
-                # Tablero quieto (sin interrupción previa o mano sin mover pieza)
                 frame_ref         = gris.copy()
                 frames_estables   = 0
                 post_interrupcion = False
                 pendiente_ref     = False
                 ultimo_estado     = None
-
             else:
-                # Energía elevada por deriva de cámara/luz, sin interrupción previa.
-                # No se actualiza frame_ref; se espera a que la energía baje.
                 post_interrupcion = False
 
-    if historial_board is not None:
-        historial_board.guardar_historial()
+    if logger is not None:
+        logger.guardar_historial_completo()
     if advisor is not None:
         advisor.cerrar()
 

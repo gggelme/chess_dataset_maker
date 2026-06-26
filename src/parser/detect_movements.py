@@ -13,199 +13,26 @@ carpeta_data_raw = os.path.join(dir_raiz, "data", "raw")
 
 sys.path.insert(0, dir_actual)
 from parser_table import ParserTable
-from elements.board import Board
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# MÉTRICAS
-# ══════════════════════════════════════════════════════════════════════════════
 
 def get_energia(imagen):
-    """Media de cuadrados de píxeles.
-
-    Proxy de cuánto cambió una zona: valor alto → mucho movimiento/diferencia.
-    Se usa tanto para la señal global (¿hay interrupción?) como por celda
-    (¿qué cuadros del tablero cambiaron más?).
-    """
+    """Media de cuadrados de píxeles para medir movimiento."""
     return np.mean(imagen.astype(np.float32) ** 2)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INICIALIZACIÓN DEL TABLERO
-# ══════════════════════════════════════════════════════════════════════════════
-
 def inicializar_tablero(frame_gris, lado=800):
-    """Detecta el tablero en un frame y construye el Board virtual.
-
-    Ejecuta el pipeline completo de ParserTable:
-      1. Esquinas del tablero (Canny + contorno convexo)
-      2. Corrección de perspectiva → cuadrado lado×lado en HSV
-      3. Orientación (blancas abajo, negras arriba)
-      4. Grilla Hough → y_pos / x_pos (9 límites de fila y columna)
-
-    Lanza excepción si cualquier paso falla (imagen oscura, tablero no visible,
-    Hough sin líneas, etc.). El llamador decide si reintentar.
-
-    Devuelve (parser, tablero):
-      parser  : ParserTable con H, tablero_hsv, y_pos, x_pos ya calculados.
-      tablero : Board en posición inicial, listo para recibir movimientos.
-    """
+    """Detecta el tablero en un frame y devuelve el parser configurado."""
     parser = ParserTable(frame_gris)
     parser.detect_board_corners()
     parser.correct_perspective(lado)
     parser.standardize_orientation()
     parser.detect_grid_lines()
-
-    tablero = Board(
-        nueva_partida=True,
-        imagen_rectificada=parser.tablero_hsv,
-        y_pos=parser.y_pos,
-        x_pos=parser.x_pos,
-    )
-    print(f"Tablero inicializado — turno: {tablero.turno}")
-    return parser, tablero
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ANÁLISIS DE DIFERENCIA EN ESPACIO DEL TABLERO
-# ══════════════════════════════════════════════════════════════════════════════
+    print("Tablero (Parser) inicializado correctamente.")
+    return parser
 
 def _warp_diferencia(diferencia_gris, H, lado):
-    """Aplica la homografía H a la imagen diferencia.
-
-    Lleva la diferencia del espacio de la cámara al espacio del tablero
-    rectificado, para que los recortes de cada celda sean comparables.
-    H debe ser la misma matriz calculada por correct_perspective().
-    """
+    """Aplica la homografía H a la imagen diferencia."""
     return cv.warpPerspective(diferencia_gris, H, (lado, lado))
 
-
-def obtener_top_celdas(frame_ref_gris, frame_nuevo_gris, parser, umbral_pieza):
-    """Identifica las celdas del tablero con mayor cambio entre dos frames.
-
-    Proceso:
-      1. Diferencia absoluta entre los dos frames en escala de grises.
-      2. Warp de la diferencia al espacio del tablero (usa H del parser).
-      3. Para cada una de las 64 celdas (según y_pos / x_pos) se calcula
-         la energía del recorte de la diferencia warpeada.
-      4. Se filtran las celdas cuya energía supera `umbral_pieza` y se
-         devuelven las top-4 ordenadas de mayor a menor energía.
-
-    Devuelve:
-      top4     : lista de tuplas (fila, col) — máx. 4 celdas candidatas.
-      ENERGIAS : np.array (8, 8) con la energía de cada celda (para debug).
-    """
-    y_pos = parser.y_pos
-    x_pos = parser.x_pos
-    lado  = parser.tablero_hsv.shape[0]
-
-    diferencia      = cv.absdiff(frame_nuevo_gris, frame_ref_gris)
-    diferencia_warp = _warp_diferencia(diferencia, parser.H, lado)
-
-    ENERGIAS = np.zeros((8, 8), dtype=np.float32)
-    for i in range(8):
-        for j in range(8):
-            y1, y2 = y_pos[i], y_pos[i + 1]
-            x1, x2 = x_pos[j], x_pos[j + 1]
-            ENERGIAS[i, j] = get_energia(diferencia_warp[y1:y2, x1:x2])
-
-    flat            = ENERGIAS.ravel()
-    indices_validos = np.where(flat > umbral_pieza)[0]
-
-    if len(indices_validos) == 0:
-        return [], ENERGIAS
-
-    sorted_validos = indices_validos[np.argsort(flat[indices_validos])[::-1]]
-    top4 = [(int(idx // 8), int(idx % 8)) for idx in sorted_validos[:4]]
-
-    return top4, ENERGIAS
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VALIDACIÓN PREVIA DE DETECCIÓN
-# ══════════════════════════════════════════════════════════════════════════════
-
-def hay_origen_valido(tablero, top4):
-    """Verifica que al menos una celda de top4 tenga pieza del turno actual.
-
-    Si ninguna celda candidata tiene pieza del jugador en turno, la detección
-    es un falso positivo (ruido, sombra, reflejo) y no debe procesarse.
-    Devuelve True si hay al menos un origen posible, False si no hay ninguno.
-    """
-    return any(
-        tablero.piezas[i][j] is not None and tablero.piezas[i][j].color == tablero.turno
-        for i, j in top4
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# INFERENCIA Y EJECUCIÓN DEL MOVIMIENTO
-# ══════════════════════════════════════════════════════════════════════════════
-
-def inferir_movimiento(tablero, top4):
-    """Deduce origen y destino del movimiento y lo aplica al tablero virtual.
-
-    Clasifica cada celda candidata:
-      - origen  : tiene una pieza del jugador en turno.
-      - destino : está vacía O tiene pieza enemiga (captura).
-
-    Con al menos un origen y un destino, ejecuta tablero.mover().
-    Si la inferencia es ambigua o el movimiento es inválido, solo imprime
-    un aviso y deja el tablero sin cambios.
-
-    Devuelve True si el movimiento se aplicó correctamente, False si no.
-    """
-    origenes = []
-    destinos = []
-
-    for i, j in top4:
-        pieza = tablero.piezas[i][j]
-        if pieza is None:
-            destinos.append((i, j))
-        elif pieza.color == tablero.turno:
-            origenes.append((i, j))
-        else:
-            # pieza enemiga → celda de captura
-            destinos.append((i, j))
-
-    print(f"  turno={tablero.turno} | orígenes={origenes} | destinos={destinos}")
-
-    if not origenes or not destinos:
-        print("  No se pudo inferir movimiento (orígenes o destinos vacíos).")
-        return False
-
-    # Probar todas las combinaciones origen×destino hasta encontrar una válida
-    for origen in origenes:
-        for destino in destinos:
-            try:
-                tablero.mover(origen=origen, destino=destino)
-                print(f"  OK — {origen} → {destino} | turno ahora: {tablero.turno}")
-                return True
-            except ValueError as e:
-                print(f"  ({origen}→{destino}) inválido: {e}")
-
-    print("  Ninguna combinación de origen×destino resultó válida.")
-    return False
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# LÓGICA CON python-chess  (puerto de LegalMoveDetector.calculate_move)
-# ══════════════════════════════════════════════════════════════════════════════
-#
-# En lugar de leer la ocupación de cada celda con una CNN (como el proyecto
-# original con ChessImageClassifier), usamos la ENERGÍA por celda como detector
-# de "qué celdas cambiaron". Sobre ese conjunto de celdas cambiadas aplicamos la
-# misma lógica de despacho por patrón + validación de legalidad, pero con
-# python-chess como motor (jaque, clavadas, enroque, al paso y promoción).
-#
-# Convención de coordenadas (idéntica al proyecto original):
-#   matriz[fila][col]:  fila 0 = arriba (negras),  fila 7 = abajo (blancas)
-#   col 0 = columna 'a',  col 7 = columna 'h'
-#   square = chess.square(col, 7 - fila)  →  8*(7-fila) + col
-#   UCI    = 'abcdefgh'[col] + str(8 - fila)
-
-# peon=1 caballo=2 alfil=3 torre=4 (en nuestra matriz rey=5 reina=6; ojo que en
-# python-chess QUEEN=5 KING=6, por eso el remapeo explícito).
 _TIPO_CHESS_A_VALOR = {
     chess.PAWN:   1,
     chess.KNIGHT: 2,
@@ -215,24 +42,14 @@ _TIPO_CHESS_A_VALOR = {
     chess.KING:   5,
 }
 
-
 def celda_a_square(fila, col):
-    """(fila, col) de nuestra matriz → índice de casilla de python-chess."""
     return chess.square(col, 7 - fila)
 
-
 def celda_a_uci(fila, col):
-    """(fila, col) de nuestra matriz → string algebraico, p. ej. (6,4) → 'e2'."""
     return "abcdefgh"[col] + str(8 - fila)
 
-
 def chess_board_a_matriz(board_logico):
-    """Convierte un chess.Board a la matriz 8×8 que consume LiveBoard.
-
-    Mantener el chess.Board como única fuente de verdad y derivar la matriz de
-    él evita tener que sincronizar dos motores de reglas distintos (el enroque,
-    el al paso y la promoción se aplican una sola vez, dentro de python-chess).
-    """
+    """Convierte un chess.Board a la matriz 8x8 que consume LiveBoard."""
     matriz = np.zeros((8, 8), dtype=int)
     for square, pieza in board_logico.piece_map().items():
         fila  = 7 - chess.square_rank(square)
@@ -241,20 +58,9 @@ def chess_board_a_matriz(board_logico):
         matriz[fila][col] = valor if pieza.color == chess.WHITE else -valor
     return matriz
 
-
 def obtener_celdas_cambiadas(frame_ref_gris, frame_nuevo_gris, parser,
                              umbral_pieza, max_celdas=6):
-    """Celdas del tablero cuya energía superó `umbral_pieza` entre dos frames.
-
-    Igual que obtener_top_celdas pero pensado para la lógica con python-chess:
-    devuelve TODAS las celdas que cambiaron (hasta `max_celdas`, ordenadas por
-    energía descendente). El límite acota la explosión combinatoria al armar
-    pares origen×destino y deja margen para el enroque (4 celdas cambian).
-
-    Devuelve:
-      cambiadas : lista de (fila, col) ordenada por energía desc.
-      ENERGIAS  : np.array (8, 8) con la energía de cada celda (para debug/visor).
-    """
+    """Celdas del tablero cuya energía superó el umbral."""
     y_pos = parser.y_pos
     x_pos = parser.x_pos
     lado  = parser.tablero_hsv.shape[0]
@@ -278,15 +84,8 @@ def obtener_celdas_cambiadas(frame_ref_gris, frame_nuevo_gris, parser,
     cambiadas = [(int(idx // 8), int(idx % 8)) for idx in ordenados]
     return cambiadas, ENERGIAS
 
-
 def _celdas_afectadas(board_logico, mov):
-    """Conjunto de celdas (fila, col) cuya pieza cambia al aplicar `mov`.
-
-    Simula el movimiento y compara el mapa de piezas antes/después. Sirve como
-    desempate: el movimiento correcto "explica" las celdas que la energía marcó
-    como cambiadas. El enroque afecta 4 celdas (rey + torre), el al paso 3
-    (origen + destino + peón capturado), una captura/movida normal 2.
-    """
+    """Simula el movimiento y devuelve las celdas afectadas."""
     def _simbolos(b):
         return {sq: pieza.symbol() for sq, pieza in b.piece_map().items()}
 
@@ -303,32 +102,16 @@ def _celdas_afectadas(board_logico, mov):
             afectadas.add((fila, col))
     return afectadas
 
-
 def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
-    """Deduce el movimiento jugado y lo aplica al chess.Board (puerto de calculate_move).
-
-    Dado el conjunto de celdas que cambiaron (por energía), arma todos los pares
-    origen->destino donde el origen tiene una pieza del lado a mover, y se queda
-    con los que python-chess considera LEGALES. Cubre, sin casos especiales, el
-    movimiento normal, la captura, el enroque, el al paso y la promoción
-    (default: dama).
-
-    Si hay varios movimientos legales, desempata por (1) cuántas de las celdas
-    cambiadas explica cada uno y (2) energía combinada. Así el enroque (explica
-    rey + torre = 4 celdas) gana sobre una movida simple de rey que dejaría
-    celdas cambiadas sin justificar.
-
-    Devuelve el chess.Move aplicado, o None si no hubo ninguno legal.
-    """
+    """Deduce el movimiento jugado utilizando chess.Board."""
     if len(cambiadas) < 2:
         print(f"  Menos de 2 celdas cambiadas ({cambiadas}); no se infiere.")
         return None
 
-    turno  = board_logico.turn  # chess.WHITE (True) / chess.BLACK (False)
+    turno  = board_logico.turn
     nombre = "blanco" if turno == chess.WHITE else "negro"
     set_cambiadas = set(cambiadas)
 
-    # Orígenes posibles: celdas cambiadas con una pieza del lado a mover.
     origenes = []
     for (fila, col) in cambiadas:
         pieza = board_logico.piece_at(celda_a_square(fila, col))
@@ -339,7 +122,7 @@ def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
         print(f"  Sin origenes del lado {nombre} entre {cambiadas}.")
         return None
 
-    candidatos = []  # (celdas_explicadas, energia_combinada, chess.Move)
+    candidatos = []
     for (fo, co) in origenes:
         e_o = float(energias_celdas[fo, co])
         for (fd, cd) in cambiadas:
@@ -347,8 +130,7 @@ def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
                 continue
             e_d      = float(energias_celdas[fd, cd])
             base_uci = celda_a_uci(fo, co) + celda_a_uci(fd, cd)
-            # '' cubre movimiento/captura/enroque/al paso; los sufijos, la
-            # promocion (se prueba dama primero, que es lo mas frecuente).
+            
             for sufijo in ("", "q", "r", "b", "n"):
                 try:
                     mov = chess.Move.from_uci(base_uci + sufijo)
@@ -375,23 +157,8 @@ def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
     print(f"  OK -- {mejor.uci()} ({san}) | turno ahora: {siguiente}")
     return mejor
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# VISOR DE DEBUG
-# ══════════════════════════════════════════════════════════════════════════════
-
 def ver_por_frame(video, energias, interrupciones, referencias):
-    """Visor interactivo frame a frame del video procesado.
-
-    Abre 4 ventanas controladas por un slider:
-      - Frame        : imagen original con energía e indicador de interrupción.
-      - Referencia   : frame gris de referencia activo en ese instante.
-      - Diferencia   : absdiff entre frame y su referencia.
-      - Diff Refs    : absdiff entre la referencia actual y la anterior
-                       (útil para ver cuándo se actualizó la referencia).
-
-    Presionar cualquier tecla para cerrar.
-    """
+    """Visor interactivo frame a frame del video procesado."""
     if not video:
         print("No hay frames para mostrar.")
         return
@@ -405,7 +172,6 @@ def ver_por_frame(video, energias, interrupciones, referencias):
         frame     = video[x].copy()
         gris      = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frame_ref = referencias[x]
-
         diff = cv.absdiff(gris, frame_ref)
 
         if x > 0:
@@ -441,9 +207,6 @@ def ver_por_frame(video, energias, interrupciones, referencias):
     cv.destroyAllWindows()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# LOOP PRINCIPAL
-# ══════════════════════════════════════════════════════════════════════════════
 
 def ejecutar_foto_captura(
     vivo=True,
@@ -458,12 +221,7 @@ def ejecutar_foto_captura(
     max_intentos_inicializacion=10,
     mostrar_en_vivo=True,
 ):
-    """Procesa un video detectando y aplicando movimientos de ajedrez.
-    
-    Versión corregida: lectura secuencial sin freeze, energía instantánea,
-    máquina de estados post-interrupción. Funciona bien tanto standalone
-    como importado desde run.py.
-    """
+    """Procesa un video detectando y aplicando movimientos de ajedrez."""
     cap = cv.VideoCapture(0 if vivo else url)
     if not cap.isOpened():
         print(f"Error: no se pudo abrir la fuente: {url!r}")
@@ -475,11 +233,9 @@ def ejecutar_foto_captura(
     referencias = []
 
     parser = None
-    tablero = None
     frame_ref = None
     board_logico = None  
     
-    # Contadores para debug
     intentos_inicializacion = 0
     frames_procesados = 0
     tiempo_inicio = time.time()
@@ -489,15 +245,9 @@ def ejecutar_foto_captura(
     ultimo_estado = None
     post_interrupcion = False
     pendiente_ref = False
-    frames_desde_ref = 0
     
-    # Muestreo por conteo de frames (lectura secuencial, sin seeking)
-    if vivo:
-        fps = 30  # aproximado en cámara
-    else:
-        fps = cap.get(cv.CAP_PROP_FPS)
-    
-    salto = max(1, int(fps * ms / 1000.0))  # frames a saltar
+    fps = 30 if vivo else cap.get(cv.CAP_PROP_FPS)
+    salto = max(1, int(fps * ms / 1000.0))
     
     print(f"FPS: {fps}, Salto: {salto} frames (~{salto*1000/fps:.0f}ms)")
 
@@ -508,20 +258,18 @@ def ejecutar_foto_captura(
         
         idx_frame += 1
         
-        # Muestrear cada `salto` frames
         if idx_frame % salto != 0:
             continue
         
         gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frames_procesados += 1
         
-        # ── INICIALIZACIÓN ──────────────────────────────────────────
         if frame_ref is None:
             if get_energia(gris) < 50:
                 continue
             try:
-                parser, tablero = inicializar_tablero(gris, lado)
-                board_logico = chess.Board()  # ✅ Crear chess.Board en paralelo
+                parser = inicializar_tablero(gris, lado)
+                board_logico = chess.Board()
                 frame_ref = gris.copy()
                 intentos_inicializacion = 0
                 print(f"✅ Referencia inicial establecida (frame {idx_frame}).")
@@ -533,11 +281,9 @@ def ejecutar_foto_captura(
                     break
                 continue
         
-        # ── PROCESAMIENTO NORMAL ────────────────────────────────────
         video.append(frame)
         referencias.append(frame_ref.copy())
         
-        # Energía INSTANTÁNEA (sin deque)
         diff = cv.absdiff(gris, frame_ref)
         energia = get_energia(diff)
         energias.append(energia)
@@ -545,7 +291,6 @@ def ejecutar_foto_captura(
         interrupcion = energia > umbral
         interrupciones.append(interrupcion)
         
-        # ── MÁQUINA DE ESTADOS ──────────────────────────────────────
         if interrupcion:
             frames_estables = 0
             post_interrupcion = True
@@ -559,7 +304,6 @@ def ejecutar_foto_captura(
                 print(f"🟢 ESTABLE (E={energia:.1f}, frames={frames_estables})")
                 ultimo_estado = 'estable'
         
-        # ── Limpieza de referencia pendiente (asentamiento) ──────────
         if pendiente_ref and not interrupcion and not post_interrupcion:
             if energia < umbral_minimo:
                 frame_ref = gris.copy()
@@ -568,14 +312,12 @@ def ejecutar_foto_captura(
                 ultimo_estado = None
                 print(f"  🔄 [ref asentada, E={energia:.1f}]")
         
-        # ── Detección / Refresco ─────────────────────────────────────
         elif (
             not interrupcion
             and frames_estables >= N_estables
             and post_interrupcion
         ):
             if energia >= umbral_minimo:
-                # ── Jugada detectada ─────────────────────────────────────
                 print(f"\n>>> DETECCION (E={energia:.1f}, frames={frames_estables})")
                 ref_nueva = gris.copy()
                 
@@ -584,7 +326,6 @@ def ejecutar_foto_captura(
                 print(f"  Celdas cambiadas: {cambiadas}")
                 
                 if len(cambiadas) >= 2:
-                    # ✅ Usar board_logico (chess.Board) en lugar de tablero
                     mov = inferir_movimiento_legal(board_logico, cambiadas, energias_celdas)
                     if mov is not None:
                         print(f"  ✅ Movimiento aplicado: {mov.uci()}")
@@ -596,11 +337,10 @@ def ejecutar_foto_captura(
                 frame_ref = ref_nueva
                 frames_estables = 0
                 post_interrupcion = False
-                pendiente_ref = True  # pedir limpieza cuando se asiente
+                pendiente_ref = True  
                 ultimo_estado = None
             
             elif energia < umbral_minimo:
-                # Tablero quieto sin interrupción previa
                 frame_ref = gris.copy()
                 frames_estables = 0
                 post_interrupcion = False
@@ -608,7 +348,6 @@ def ejecutar_foto_captura(
                 ultimo_estado = None
         
         elif not interrupcion and frames_estables >= N_estables and not post_interrupcion:
-            # Refresco periódico por quietud prolongada (tablero ya estable)
             if energia < umbral_minimo:
                 frame_ref = gris.copy()
                 frames_estables = 0
@@ -626,10 +365,6 @@ def ejecutar_foto_captura(
     
     return video, energias, interrupciones, referencias
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ENTRY POINT
-# ══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == '__main__':
     ruta = os.path.join(carpeta_data_raw, "Prueba_Completa.mp4")
