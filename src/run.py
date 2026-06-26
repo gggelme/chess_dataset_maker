@@ -11,9 +11,7 @@ dir_raiz = os.path.dirname(dir_src)
 
 sys.path.insert(0, dir_raiz)
 
-from src.parser.detect_movements import (
-    get_energia, inicializar_tablero,
-    obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
+from src.parser.detect_movements import (get_energia, inicializar_tablero, obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
 
 from ui.virtual_board import LiveBoard
 from ui.stockfish_advisor import StockfishAdvisor
@@ -60,17 +58,17 @@ def main():
         return
 
     parser            = None
-    board_logico      = None   # chess.Board: fuente de verdad del estado de la partida
+    board_logico      = None   
     frame_ref         = None
     live_board        = None
-    advisor           = None   # StockfishAdvisor (se crea junto con live_board)
-    logger            = None   # GameLogger — escribe blancas.json y negras.json
+    advisor           = None   
+    logger            = None   
     ultimo_t          = 0.0
     ultimo_refresco   = 0.0
     frames_estables   = 0
     ultimo_estado     = None
     post_interrupcion = False
-    pendiente_ref     = False  # True tras detección; limpia frame_ref en cuanto baja UMBRAL_MINIMO
+    pendiente_ref     = False  
 
     while cap.isOpened():
         ret, frame = cap.read()
@@ -144,7 +142,7 @@ def main():
                 ultimo_estado   = None
                 print(f"  [ref asentada  energia={energia:.1f}]")
 
-        # ── Detección / Refresco (gated por cooldown) ─────────────────────────
+        # ── Detección / Refresco ─────────────────────────────────────────────
         elif (not interrupcion
             and ahora - ultimo_refresco >= MS_MIN_REFRESCO
             and frames_estables >= N_ESTABLES):
