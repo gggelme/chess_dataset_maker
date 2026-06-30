@@ -5,9 +5,7 @@ import os
 
 _DIR_UI   = os.path.dirname(os.path.abspath(__file__))
 _DIR_RAIZ = os.path.dirname(os.path.dirname(_DIR_UI))
-_EXE_DEFAULT = os.path.join(
-    _DIR_RAIZ, "models", "stockfish", "stockfish-windows-x86-64-avx2.exe"
-)
+_EXE_DEFAULT = os.path.join(_DIR_RAIZ, "models", "stockfish", "stockfish-windows-x86-64-avx2.exe")
 
 
 class StockfishAdvisor:
@@ -33,9 +31,7 @@ class StockfishAdvisor:
         """Lanza el análisis en background.  Devuelve inmediatamente."""
         if self._thread and self._thread.is_alive():
             return  # análisis anterior todavía en curso
-        self._thread = threading.Thread(
-            target=self._worker, args=(board.copy(),), daemon=True
-        )
+        self._thread = threading.Thread(target=self._worker, args=(board.copy(),), daemon=True)
         self._thread.start()
 
     def get_sugerencias(self):

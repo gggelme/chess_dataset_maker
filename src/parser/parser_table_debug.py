@@ -3,7 +3,7 @@ import numpy as np
 import os
 import sys
 
-# python src/parser/debug_parser.py
+# python src/parser/parser_table_debug.py
 
 dir_actual = os.path.dirname(os.path.abspath(__file__))
 dir_proyecto = os.path.dirname(os.path.dirname(dir_actual))

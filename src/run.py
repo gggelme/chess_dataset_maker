@@ -4,7 +4,7 @@ import time
 import os
 import sys
 
-# python src/run.py  (ejecutar desde la raíz del proyecto)
+# python src/run.py  
 
 dir_src  = os.path.dirname(os.path.abspath(__file__))
 dir_raiz = os.path.dirname(dir_src)
@@ -26,8 +26,9 @@ MS_MIN_REFRESCO = 1000   # cooldown post-detección (ms)
 N_ESTABLES      = 2      # frames quietos consecutivos para declarar reposo
 UMBRAL          = 300    # energía que indica movimiento/mano en escena
 UMBRAL_MINIMO   = 25     # por debajo de esto el tablero no cambió nada real (ruido ~8-10)
-UMBRAL_PIEZA    = 50    # energía mínima por celda para considerarla candidata
+UMBRAL_PIEZA    = 50     # energía mínima por celda para considerarla candidata
 LADO            = 800    # lado del tablero rectificado en píxeles
+PRINT           = True  # imprime info de debug en consola
 
 
 # ── Visualización de energía ──────────────────────────────────────────────────
@@ -44,8 +45,7 @@ def _dibujar_energia(diff_warp, energias, y_pos, x_pos, umbral_pieza):
             color  = (0, int(255 * (1 - ratio)), int(255 * ratio))
             grosor = 2 if e > umbral_pieza else 1
             cv.rectangle(vis, (x1, y1), (x2, y2), color, grosor)
-            cv.putText(vis, str(int(e)), (x1 + 3, y1 + 16),
-                       cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
+            cv.putText(vis, str(int(e)), (x1 + 3, y1 + 16), cv.FONT_HERSHEY_SIMPLEX, 0.35, (255, 255, 255), 1)
     return vis
 
 
@@ -123,15 +123,17 @@ def main():
             post_interrupcion = True
             pendiente_ref     = False
             if ultimo_estado != 'interrupcion':
-                print(f"[{ahora:.0f}ms] INTERRUPCION  energia={energia:.1f}")
                 ultimo_estado = 'interrupcion'
+                if PRINT:
+                    print(f"[{ahora:.0f}ms] INTERRUPCION  energia={energia:.1f}")
         else:
             frames_estables += 1
             if ultimo_estado != 'estable':
-                print(f"[{ahora:.0f}ms] quieto  energia={energia:.1f}  "
-                      f"frames_estables={frames_estables}  "
-                      f"dt_ref={ahora-ultimo_refresco:.0f}ms")
                 ultimo_estado = 'estable'
+                if PRINT:
+                    print(f"[{ahora:.0f}ms] quieto  energia={energia:.1f}  "
+                          f"frames_estables={frames_estables}  "
+                          f"dt_ref={ahora-ultimo_refresco:.0f}ms")
 
         # ── Limpieza de referencia pendiente ────────────────────────────────── 
         if pendiente_ref and not interrupcion and not post_interrupcion:
@@ -140,7 +142,8 @@ def main():
                 pendiente_ref   = False
                 frames_estables = 0
                 ultimo_estado   = None
-                print(f"  [ref asentada  energia={energia:.1f}]")
+                if PRINT:
+                    print(f"  [ref asentada  energia={energia:.1f}]")
 
         # ── Detección / Refresco ─────────────────────────────────────────────
         elif (not interrupcion
@@ -148,20 +151,18 @@ def main():
             and frames_estables >= N_ESTABLES):
             if post_interrupcion and energia >= UMBRAL_MINIMO:
                 # ── Jugada detectada ─────────────────────────────────────────
-                print(f"\n>>> DETECCION  energia={energia:.1f}  "
-                      f"frames_estables={frames_estables}  dt_ref={ahora-ultimo_refresco:.0f}ms")
                 ref_nueva = gris.copy()
+                if PRINT:
+                    print(f"\n>>> DETECCION  energia={energia:.1f}  "
+                          f"frames_estables={frames_estables}  dt_ref={ahora-ultimo_refresco:.0f}ms")
 
-                cambiadas, energias_celdas = obtener_celdas_cambiadas(
-                    frame_ref, ref_nueva, parser, UMBRAL_PIEZA)
+                cambiadas, energias_celdas = obtener_celdas_cambiadas(frame_ref, ref_nueva, parser, UMBRAL_PIEZA)
                 turno = "blanco" if board_logico.turn == chess.WHITE else "negro"
-                print(f"  Celdas cambiadas: {cambiadas}  turno={turno}")
+                if PRINT:
+                    print(f"  Celdas cambiadas: {cambiadas}  turno={turno}")
 
-                diff_warp = cv.warpPerspective(
-                    cv.absdiff(frame_ref, ref_nueva), parser.H, (LADO, LADO))
-                cv.imshow("Energia celdas",
-                          _dibujar_energia(diff_warp, energias_celdas,
-                                           parser.y_pos, parser.x_pos, UMBRAL_PIEZA))
+                diff_warp = cv.warpPerspective(cv.absdiff(frame_ref, ref_nueva), parser.H, (LADO, LADO))
+                cv.imshow("Energia celdas", _dibujar_energia(diff_warp, energias_celdas, parser.y_pos, parser.x_pos, UMBRAL_PIEZA))
 
                 # Capturar estado PRE-jugada para el log y la SAN
                 board_antes  = board_logico.copy()

@@ -58,8 +58,7 @@ def chess_board_a_matriz(board_logico):
         matriz[fila][col] = valor if pieza.color == chess.WHITE else -valor
     return matriz
 
-def obtener_celdas_cambiadas(frame_ref_gris, frame_nuevo_gris, parser,
-                             umbral_pieza, max_celdas=6):
+def obtener_celdas_cambiadas(frame_ref_gris, frame_nuevo_gris, parser, umbral_pieza, max_celdas=6):
     """Celdas del tablero cuya energía superó el umbral."""
     y_pos = parser.y_pos
     x_pos = parser.x_pos
@@ -157,6 +156,7 @@ def inferir_movimiento_legal(board_logico, cambiadas, energias_celdas):
     print(f"  OK -- {mejor.uci()} ({san}) | turno ahora: {siguiente}")
     return mejor
 
+# nos da un visor interactivo
 def ver_por_frame(video, energias, interrupciones, referencias):
     """Visor interactivo frame a frame del video procesado."""
     if not video:
@@ -212,14 +212,12 @@ def ejecutar_foto_captura(
     vivo=True,
     url='',
     ms=250,
-    ms_min_refresco=1000,
     N_estables=2,
     umbral=300,
     umbral_minimo=25,
     umbral_pieza=50,
     lado=800,
     max_intentos_inicializacion=10,
-    mostrar_en_vivo=True,
 ):
     """Procesa un video detectando y aplicando movimientos de ajedrez."""
     cap = cv.VideoCapture(0 if vivo else url)
@@ -251,6 +249,7 @@ def ejecutar_foto_captura(
     
     print(f"FPS: {fps}, Salto: {salto} frames (~{salto*1000/fps:.0f}ms)")
 
+    # mietras haya frames, procesamos
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -263,7 +262,8 @@ def ejecutar_foto_captura(
         
         gris = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         frames_procesados += 1
-        
+
+        # en el primer frame inicializamos el tablero
         if frame_ref is None:
             if get_energia(gris) < 50:
                 continue
@@ -272,15 +272,16 @@ def ejecutar_foto_captura(
                 board_logico = chess.Board()
                 frame_ref = gris.copy()
                 intentos_inicializacion = 0
-                print(f"✅ Referencia inicial establecida (frame {idx_frame}).")
+                print(f"Referencia inicial establecida (frame {idx_frame}).")
             except Exception as e:
                 intentos_inicializacion += 1
-                print(f"❌ Inicialización fallida (intento {intentos_inicializacion}): {e}")
+                print(f"Inicialización fallida (intento {intentos_inicializacion}): {e}")
                 if intentos_inicializacion >= max_intentos_inicializacion:
-                    print("🔴 Demasiados intentos fallidos. Abortando...")
+                    print("Demasiados intentos fallidos. Abortando...")
                     break
                 continue
         
+        # actualizamos las listas con el frame actual
         video.append(frame)
         referencias.append(frame_ref.copy())
         
@@ -291,6 +292,7 @@ def ejecutar_foto_captura(
         interrupcion = energia > umbral
         interrupciones.append(interrupcion)
         
+        # si hay una interrupción, reseteamos el contador de frames estables
         if interrupcion:
             frames_estables = 0
             post_interrupcion = True
@@ -373,7 +375,6 @@ if __name__ == '__main__':
         vivo=False,
         url=ruta,
         ms=250,
-        ms_min_refresco=1000,
         N_estables=2,
         umbral=300,
         umbral_minimo=25,
