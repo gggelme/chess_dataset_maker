@@ -1,0 +1,23 @@
+{
+  "jugador": "blancas",
+  "movimientos": [
+    {
+      "numero": 1,
+      "jugada": "e4",
+      "uci": "e2e4",
+      "recomendado": null
+    },
+    {
+      "numero": 2,
+      "jugada": "c3",
+      "uci": "c2c3",
+      "recomendado": null
+    },
+    {
+      "numero": 3,
+      "jugada": "g3",
+      "uci": "g2g3",
+      "recomendado": null
+    }
+  ]
+}

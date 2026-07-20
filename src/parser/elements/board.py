@@ -1,6 +1,7 @@
 import sys
 import os
 import numpy as np
+import json
 
 sys.path.insert(0, os.path.dirname(__file__))
 from pieces import Pawn, Knight, Bishop, Rook, King, Queen
@@ -62,6 +63,8 @@ class Board:
                 [ 4,  2,  3,  6,  5,  3,  2,  4],  # fila 7 – back rank blancas (abajo)
             ]
             self._inicializar_piezas()
+        
+        self.historial_NAL = []
         # else: partida en curso → lógica de detección por imagen (a implementar)
 
     def _inicializar_piezas(self):
@@ -98,19 +101,16 @@ class Board:
 
         fila_o, col_o = origen
         fila_d, col_d = destino
-
         pieza = self.piezas[fila_o][col_o]
 
         if pieza is None:
-            raise ValueError(
-                f"No hay pieza en {origen}"
-            )
+            raise ValueError(f"No hay pieza en {origen}")
 
-        pieza.mover(
-            fila_d,
-            col_d,
-            self.piezas
-        )
+        origen_str = self._idx_a_algebraica(fila_o, col_o)
+        destino_str = self._idx_a_algebraica(fila_d, col_d)
+        self.historial_NAL.append(f"{origen_str}-{destino_str}")
+
+        pieza.mover(fila_d, col_d, self.piezas)
 
         self.matriz[fila_o][col_o] = 0
         self.matriz[fila_d][col_d] = pieza.valor
@@ -125,6 +125,35 @@ class Board:
         """Sub-imagen HSV de la celda [fila][col]."""
         c = self.celdas[fila][col]
         return self.imagen[c.y_up:c.y_down, c.x_left:c.x_right]
+
+    def _idx_a_algebraica(self, fila, col):
+        """Convierte índices de matriz (ej: 6,4) a notación de ajedrez (ej: e2)"""
+        columnas = "abcdefgh"
+        filas = "87654321" # La fila 0 de tu matriz es la fila 8 del tablero
+        return f"{columnas[col]}{filas[fila]}"
+    
+
+    def guardar_historial(self, nombre_archivo="partida.json"):
+        """Convierte el historial a JSON y lo guarda en la carpeta data/log."""
+        # Calculamos la ruta relativa subiendo tres niveles desde src/parser/elements
+        # hasta la raíz del proyecto
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        log_dir = os.path.join(base_dir, "data", "log")
+        
+        # Aseguramos que la estructura de carpetas exista
+        os.makedirs(log_dir, exist_ok=True)
+        
+        ruta_completa = os.path.join(log_dir, nombre_archivo)
+        
+        # Estructuramos los datos que queremos guardar
+        datos = {"movimientos": self.historial_NAL}
+        
+        # Guardamos el archivo JSON de forma limpia
+        with open(ruta_completa, "w", encoding="utf-8") as f:
+            json.dump(datos, f, indent=4)
+            
+        print(f"Historial guardado en: {ruta_completa}")
+
 
     def dibujar(self, img=None):
         import cv2

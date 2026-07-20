@@ -8,12 +8,7 @@
 
 def _mover(pieza, nueva_row, nueva_col, piezas):
     """Lógica común de validación, captura y actualización de grilla."""
-    movimientos = pieza.obtener_movimientos_validos(piezas)
-    if (nueva_row, nueva_col) not in movimientos:
-        raise ValueError(
-            f"{pieza} no puede moverse a [{nueva_row},{nueva_col}]. "
-            f"Movimientos válidos: {movimientos}"
-        )
+    # Sin validación: fuerza el movimiento siempre
     pieza_comida = piezas[nueva_row][nueva_col]
     piezas[pieza.row][pieza.col] = None
     piezas[nueva_row][nueva_col] = pieza
@@ -58,13 +53,8 @@ class Pawn:
         return movimientos
 
     def mover(self, nueva_row, nueva_col, piezas, en_passant_col=None, promocion=None):
-        movimientos = self.obtener_movimientos_validos(piezas, en_passant_col)
-        if (nueva_row, nueva_col) not in movimientos:
-            raise ValueError(
-                f"{self} no puede moverse a [{nueva_row},{nueva_col}]. "
-                f"Movimientos válidos: {movimientos}"
-            )
-
+        # Sin validación: fuerza el movimiento siempre
+        
         # en passant: movimiento diagonal hacia casilla vacía
         es_en_passant = (nueva_col != self.col) and (piezas[nueva_row][nueva_col] is None)
 
@@ -245,13 +235,8 @@ class King:
         return movimientos
 
     def mover(self, nueva_row, nueva_col, piezas):
-        movimientos = self.obtener_movimientos_validos(piezas)
-        if (nueva_row, nueva_col) not in movimientos:
-            raise ValueError(
-                f"{self} no puede moverse a [{nueva_row},{nueva_col}]. "
-                f"Movimientos válidos: {movimientos}"
-            )
-
+        # Sin validación: fuerza el movimiento siempre
+        
         # Detectar enroque: el rey se desplaza 2 columnas
         if abs(nueva_col - self.col) == 2:
             fila = self.row

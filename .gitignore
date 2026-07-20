@@ -4,4 +4,6 @@ venv/
 Env/
 env/
 
-data/
+data/raw/Chess Pieces Recognition/
+
+models/
