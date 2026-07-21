@@ -11,7 +11,7 @@ dir_raiz = os.path.dirname(dir_src)
 
 sys.path.insert(0, dir_raiz)
 
-from src.parser.detect_movements import (get_energia, inicializar_tablero, obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
+from extra.detect_movements_viejo import (get_energia, inicializar_tablero, obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
 
 from ui.virtual_board import LiveBoard
 from ui.stockfish_advisor import StockfishAdvisor
