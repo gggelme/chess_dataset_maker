@@ -1,0 +1,11 @@
+{
+  "jugador": "negras",
+  "movimientos": [
+    {
+      "numero": 1,
+      "jugada": "h6",
+      "uci": "h7h6",
+      "recomendado": null
+    }
+  ]
+}

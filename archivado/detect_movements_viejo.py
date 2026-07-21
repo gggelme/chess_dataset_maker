@@ -5,14 +5,14 @@ import time
 import os
 import sys
 
-# python src/parser/detect_movements.py
+# python archivado/detect_movements_viejo.py
 
 dir_actual       = os.path.dirname(os.path.abspath(__file__))
-dir_raiz         = os.path.dirname(os.path.dirname(dir_actual))
+dir_raiz         = os.path.dirname(dir_actual) 
 carpeta_data_raw = os.path.join(dir_raiz, "data", "raw")
 
 sys.path.insert(0, dir_actual)
-from extra.parser_table_viejo import ParserTable
+from parser_table_viejo import ParserTable
 
 
 def get_energia(imagen):

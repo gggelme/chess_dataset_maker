@@ -1,11 +1,9 @@
 import sys
 import os
-
 import numpy as np
 import cv2
 
-# python src/parser/parser_table.py
-
+# python archivado/parser_table_viejo.py
 
 # ── Helpers de geometría (module-level) ──────────────────────────────────────
 
@@ -309,7 +307,7 @@ if __name__ == "__main__":
     import matplotlib.pyplot as plt
 
     BASE = os.path.dirname(os.path.abspath(__file__))
-    ruta = os.path.join(BASE, "../../data/raw/tablero_vertical.jpg")
+    ruta = os.path.join(BASE, "../data/raw/tablero_vertical.jpg")
 
     img_gris = cv2.imread(ruta, cv2.IMREAD_GRAYSCALE)
     if img_gris is None:
