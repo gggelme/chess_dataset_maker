@@ -2,8 +2,8 @@ import os
 import pygame
 import numpy as np
 
-# mapea una matriz de 8x8 en un tablero de ajedrez digital
 # python src/ui/virtual_board.py
+
 class LiveBoard:
     def __init__(self, tamano_celda=80):
         self.tamano_celda = tamano_celda
