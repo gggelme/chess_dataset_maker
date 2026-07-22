@@ -146,9 +146,16 @@ if __name__ == "__main__":
             if warp_ref is None:
                 warp_ref = tablero_gray.copy()
                 continue
-                
+            
+
+            # Reemplazar la obtención de la diferencia directa por una binarizada
             diff = cv.absdiff(tablero_gray, warp_ref)
-            energia_global = np.mean(diff.astype(np.float32) ** 2)
+            _, diff_thresh = cv.threshold(diff, 25, 255, cv.THRESH_BINARY)
+            diff_clean = cv.morphologyEx(diff_thresh, cv.MORPH_OPEN, np.ones((3,3), np.uint8))
+            energia_global = np.mean(diff_clean.astype(np.float32) ** 2)
+
+            #diff = cv.absdiff(tablero_gray, warp_ref)
+            #energia_global = np.mean(diff.astype(np.float32) ** 2)
 
             if energia_global > UMBRAL_INTERRUPCION:
                 frames_estables = 0
