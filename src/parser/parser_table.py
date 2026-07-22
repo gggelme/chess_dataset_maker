@@ -4,6 +4,9 @@ from collections import deque
 import itertools
 import os
 
+# python src/parser/parser_table.py
+
+
 # UTILIDADES GEOMÉTRICAS Y CV
 DST_SIZE = (800, 800)
 ETIQUETAS = ["TL", "TR", "BR", "BL"]
@@ -44,14 +47,15 @@ def procesar_contornos(gray, saddle_points):
         
         if len(approx) == 4 and cv.isContourConvex(approx) and cv.contourArea(approx) >= 10:
             pts_silla = contar_puntos_silla_en_poligono(approx, saddle_points)
-            if pts_silla >= 50:
+            if pts_silla >= 35:
                 validos.append({"vertices": approx, "num_puntos": pts_silla})
     
     mejor_cuad = max(validos, key=lambda c: c["num_puntos"]) if validos else None
     return mejor_cuad, mascara_binaria
 
-# BACK-UP: HOUGH
-def calcular_interseccion_polar(rho1, theta1, rho2, theta2):
+def calcular_interseccion_polar(polar1, polar2):
+    rho1, theta1 = polar1
+    rho2, theta2 = polar2
     A = np.array([[np.cos(theta1), np.sin(theta1)], [np.cos(theta2), np.sin(theta2)]])
     b = np.array([rho1, rho2])
     try:
@@ -61,35 +65,37 @@ def calcular_interseccion_polar(rho1, theta1, rho2, theta2):
         return None
 
 def fallback_hough(mascara_binaria, saddle_points, shape):
-    lineas = cv.HoughLinesP(mascara_binaria, 1, np.pi / 180, 50, minLineLength=50, maxLineGap=40)
+    lineas = cv.HoughLinesP(mascara_binaria, 1, np.pi / 360, 30, minLineLength=30, maxLineGap=60)
     if lineas is None: return None
 
     h_lines, v_lines = [], []
     for x1, y1, x2, y2 in lineas[:, 0]:
         theta = np.arctan2(x2 - x1, -(y2 - y1)) if abs(x2 - x1) >= 1e-6 else (np.pi / 2 if y2 > y1 else -np.pi / 2)
         rho = x1 * np.cos(theta) + y1 * np.sin(theta)
+        longitud = np.hypot(x2 - x1, y2 - y1)
         
-        # Clasificar en horizontales y verticales
         if (theta % np.pi) < np.pi / 4 or (theta % np.pi) > 3 * np.pi / 4:
-            h_lines.append((rho, theta))
+            h_lines.append((rho, theta, longitud))
         else:
-            v_lines.append((rho, theta))
+            v_lines.append((rho, theta, longitud))
 
-    h_lines, v_lines = h_lines[:8], v_lines[:8] # Limitar combinaciones
+    def fusionar(lines, d_rho=20, d_theta=0.1):
+        fusionadas = []
+        for rho, theta, _ in sorted(lines, key=lambda x: x[2], reverse=True):
+            if not any(abs(rho - fr) < d_rho and min(abs(theta - ft), np.pi - abs(theta - ft)) < d_theta for fr, ft in fusionadas):
+                fusionadas.append((rho, theta))
+        return fusionadas[:12]
+
+    h_lines, v_lines = fusionar(h_lines), fusionar(v_lines)
     cuadrilateros = []
     
     for h_pair in itertools.combinations(h_lines, 2):
         for v_pair in itertools.combinations(v_lines, 2):
             pts = [
-                calcular_interseccion_polar(h_pair[0][0], h_pair[0][1], v_pair[0][0], v_pair[0][1]),
-                calcular_interseccion_polar(h_pair[0][0], h_pair[0][1], v_pair[1][0], v_pair[1][1]),
-                calcular_interseccion_polar(h_pair[1][0], h_pair[1][1], v_pair[1][0], v_pair[1][1]),
-                calcular_interseccion_polar(h_pair[1][0], h_pair[1][1], v_pair[0][0], v_pair[0][1])
+                calcular_interseccion_polar(h_pair[0], v_pair[0]), calcular_interseccion_polar(h_pair[0], v_pair[1]),
+                calcular_interseccion_polar(h_pair[1], v_pair[1]), calcular_interseccion_polar(h_pair[1], v_pair[0])
             ]
-            
             if None in pts: continue
-            
-            # Chequear límites y formar polígono
             if any(p[0] < 0 or p[0] >= shape[1] or p[1] < 0 or p[1] >= shape[0] for p in pts): continue
             
             approx = ordenar_puntos_para_warp(np.array(pts, dtype=np.float32))
@@ -97,11 +103,10 @@ def fallback_hough(mascara_binaria, saddle_points, shape):
             
             if cv.isContourConvex(approx_int) and cv.contourArea(approx_int) >= 100:
                 pts_silla = contar_puntos_silla_en_poligono(approx_int, saddle_points)
-                if pts_silla >= 50:
+                if pts_silla >= 35:
                     cuadrilateros.append({
-                        "vertices": approx_int, 
-                        "num_puntos": pts_silla, 
-                        "ratio": (pts_silla**2) / np.sqrt(cv.contourArea(approx_int))
+                        "vertices": approx, "num_puntos": pts_silla,
+                        "ratio": (pts_silla**1.5) / np.sqrt(cv.contourArea(approx_int))
                     })
                     
     return max(cuadrilateros, key=lambda c: c["ratio"]) if cuadrilateros else None
@@ -124,126 +129,154 @@ def analizar_orientacion(warp_crudo):
     if voltear:    m = {"TL": m["BL"], "TR": m["BR"], "BR": m["TR"], "BL": m["TL"]}
     return m
 
-def trackear_esquinas(corners_actuales, referencia):
-    ref_pts = np.array([referencia[e] for e in ETIQUETAS])
-    mejor_perm = min(itertools.permutations(range(4)), key=lambda perm: sum(np.linalg.norm(corners_actuales[perm[i]] - ref_pts[i]) for i in range(4)))
-    return {etq: corners_actuales[mejor_perm[i]].copy() for i, etq in enumerate(ETIQUETAS)}
-
-# CLASE PRINCIPAL DEL DETECTOR
+# CLASE PRINCIPAL DEL DETECTOR ESTÁTICO
 class DetectorTablero:
-    def __init__(self, vivo=False):
-        self.stability_frames = 64 if vivo else 5
-        self.tolerancia_reciclaje = 5.0
+    def __init__(self, vivo=False, refresco_frames=150, offset=0):
+        self.estado = "BUSCANDO"
         
-        self.ultimos_corners = None
-        self.ultimo_num_puntos = 0
+        self.stability_frames = 1 if vivo else 1
         self.stability_buffer = deque(maxlen=self.stability_frames)
-        self.orientacion_definida = False
-        self.corners_referencia = None
+        self.radio_estabilidad_px = 15.0
+        
+        self.corners_fijos = None
+        self.refresco_frames = refresco_frames
+        self.contador_frames = 0
+        
+        self.offset = offset
 
-    def procesar_frame(self, frame, offset_px=0):
+        self.referencia_historica = None 
+
+    def procesar_frame(self, frame):
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        saddle_points = detectar_puntos_silla(gray)
-        corners_nuevos = None
 
-        # 1. Reciclaje rápido
-        if self.ultimos_corners is not None and self.ultimo_num_puntos > 0:
-            pts_actuales = contar_puntos_silla_en_poligono(np.array(self.ultimos_corners, dtype=np.int32).reshape(-1, 1, 2), saddle_points)
-            if pts_actuales >= self.ultimo_num_puntos * (1 - self.tolerancia_reciclaje / 100.0):
-                corners_nuevos = self.ultimos_corners
-                self.ultimo_num_puntos = pts_actuales
-
-        # 2. Detección por contornos
-        if corners_nuevos is None:
-            mejor_cuad, mascara_binaria = procesar_contornos(gray, saddle_points)
+        # ==========================================
+        # ESTADO: Búsqueda y Orientación
+        # ==========================================
+        if self.estado == "BUSCANDO":
+            saddle_points = detectar_puntos_silla(gray)
+            corners_nuevos = None
             
+            mejor_cuad, mascara_binaria = procesar_contornos(gray, saddle_points)
             if mejor_cuad:
                 puntos = [(int(p[0][0]), int(p[0][1])) for p in mejor_cuad["vertices"]]
                 corners_nuevos = ordenar_puntos_para_warp(np.array(puntos, dtype=np.float32))
-                self.ultimo_num_puntos = mejor_cuad["num_puntos"]
             else:
-                # 3. BACK-UP: Detección por Hough
                 mejor_hough = fallback_hough(mascara_binaria, saddle_points, frame.shape)
                 if mejor_hough:
-                    puntos = [(int(p[0][0]), int(p[0][1])) for p in mejor_hough["vertices"]]
-                    corners_nuevos = ordenar_puntos_para_warp(np.array(puntos, dtype=np.float32))
-                    self.ultimo_num_puntos = mejor_hough["num_puntos"]
+                    corners_nuevos = mejor_hough["vertices"]
 
-        # 4. Estabilidad, Orientación y Warp
-        if corners_nuevos is not None:
-            self.ultimos_corners = corners_nuevos
-
-            if not self.orientacion_definida:
-                self.stability_buffer.append(corners_nuevos.copy())
-                dists = [np.mean([np.linalg.norm(corners_nuevos[i] - v_ant[i]) for v_ant in self.stability_buffer]) for i in range(4)]
-                es_estable = np.mean(dists) < 15.0 
-
-                warp_crudo = apply_warp(frame, corners_nuevos)
-                warp_final = warp_crudo
-
-                if len(self.stability_buffer) == self.stability_frames and es_estable:
-                    mapeo = analizar_orientacion(warp_crudo)
-                    self.corners_referencia = {etq: corners_nuevos[idx].copy() for etq, idx in mapeo.items()}
-                    self.orientacion_definida = True
+            if corners_nuevos is not None:
+                # Estabilidad
+                if len(self.stability_buffer) == 0:
+                    self.stability_buffer.append(corners_nuevos.copy())
+                else:
+                    ancla = self.stability_buffer[0]
+                    distancias = [np.linalg.norm(corners_nuevos[i] - ancla[i]) for i in range(4)]
+                    if all(d <= self.radio_estabilidad_px for d in distancias):
+                        self.stability_buffer.append(corners_nuevos.copy())
+                    else:
+                        self.stability_buffer.clear()
+                        self.stability_buffer.append(corners_nuevos.copy())
                 
-                src_ordenados = corners_nuevos
-            else:
-                self.corners_referencia = trackear_esquinas(corners_nuevos, self.corners_referencia)
-                src_ordenados = np.array([self.corners_referencia[e] for e in ETIQUETAS], dtype=np.float32)
+                # Fijar tablero
+                if len(self.stability_buffer) == self.stability_frames:
+                    corners_estables = self.stability_buffer[-1]
+                    
+                    # --- LÓGICA DE ORIENTACIÓN CON MEMORIA ---
+                    if self.referencia_historica is None:
+                        # 1ra vez: Analiza por energía y guarda la referencia
+                        warp_crudo = apply_warp(frame, corners_estables)
+                        mapeo = analizar_orientacion(warp_crudo)
+                        self.corners_fijos = np.array([corners_estables[mapeo[etq]] for etq in ETIQUETAS], dtype=np.float32)
+                    else:
+                        # Refrescos siguientes: Empareja por distancia a la última posición conocida
+                        # itertools.permutations evalúa todas las formas posibles de asignar las 4 nuevas esquinas
+                        # a las 4 etiquetas, y se queda con la que suma la menor distancia total (soporta rotaciones).
+                        mejor_perm = min(
+                            itertools.permutations(range(4)), 
+                            key=lambda perm: sum(
+                                np.linalg.norm(corners_estables[perm[i]] - self.referencia_historica[ETIQUETAS[i]]) 
+                                for i in range(4)
+                            )
+                        )
+                        self.corners_fijos = np.array([corners_estables[mejor_perm[i]] for i in range(4)], dtype=np.float32)
+                    
+                    # Actualizamos la memoria con la posición más reciente
+                    self.referencia_historica = {etq: self.corners_fijos[i] for i, etq in enumerate(ETIQUETAS)}
+                    
+                    self.estado = "FIJADO"
+                    self.contador_frames = 0
+                    self.stability_buffer.clear()
                 
-                if offset_px > 0:
-                    centro = np.mean(src_ordenados, axis=0)
-                    src_ordenados = np.array([p + ((centro - p) / np.linalg.norm(centro - p)) * offset_px if np.linalg.norm(centro - p) > 0 else p for p in src_ordenados], dtype=np.float32)
-                
-                warp_final = apply_warp(frame, src_ordenados)
+                return apply_warp(frame, corners_nuevos), corners_nuevos
+            
+            self.stability_buffer.clear()
+            return None, None
 
-            return warp_final, src_ordenados
+        # ==========================================
+        # ESTADO: Proyección Estática
+        # ==========================================
+        elif self.estado == "FIJADO":
+            self.contador_frames += 1
+            
+            if self.contador_frames >= self.refresco_frames:
+                self.estado = "BUSCANDO"
+                self.corners_fijos = None
+                return None, None
 
-        return None, None
+            corners_actuales = self.corners_fijos.copy()
+            if self.offset > 0:
+                centro = np.mean(corners_actuales, axis=0)
+                corners_actuales = np.array([
+                    p + ((centro - p) / np.linalg.norm(centro - p)) * self.offset if np.linalg.norm(centro - p) > 0 else p 
+                    for p in corners_actuales
+                ], dtype=np.float32)
+
+            warp_final = apply_warp(frame, corners_actuales)
+            return warp_final, corners_actuales
 
 
 # BUCLE DE TESTING
 if __name__ == "__main__":
     VIVO = True
     VIDEO_PATH = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../data/raw/Prueba2.mp4"))
-    CAMERA_ID = 0
+    CAMERA_ID = 1
 
     cap = cv.VideoCapture(CAMERA_ID if VIVO else VIDEO_PATH)
-    if not cap.isOpened():
-        raise IOError("No se pudo abrir la fuente de video.")
-
-    detector = DetectorTablero(vivo=VIVO)
+    detector = DetectorTablero(vivo=VIVO, refresco_frames=100, offset=70) # Refresca cada 5s a 30fps
 
     cv.namedWindow("Video Original", cv.WINDOW_NORMAL)
-    cv.resizeWindow("Video Original", 450, 450)
-    
     cv.namedWindow("Tablero Warpeado", cv.WINDOW_NORMAL)
-    cv.resizeWindow("Tablero Warpeado", 450, 450)
 
     while True:
         ret, frame = cap.read()
         if not ret: break
 
-        tablero, esquinas = detector.procesar_frame(frame, offset_px=15)
+        tablero, esquinas = detector.procesar_frame(frame)
 
         if tablero is not None:
-            cv.polylines(frame, [esquinas.astype(np.int32)], True, (0, 255, 0), 3)
+            color = (0, 255, 0) if detector.estado == "FIJADO" else (0, 255, 255)
+            cv.polylines(frame, [esquinas.astype(np.int32)], True, color, 3)
+            for p in esquinas:
+                cv.circle(frame, tuple(p.astype(int)), 6, color, -1)
             
-            # Cuadrícula con mayor grosor (2px) para que no desaparezca con el redimensionado
             h, w = tablero.shape[:2]
             paso_y, paso_x = h // 8, w // 8
-            
             for i in range(1, 8):
                 cv.line(tablero, (0, i * paso_y), (w, i * paso_y), (0, 255, 255), 2)
                 cv.line(tablero, (i * paso_x, 0), (i * paso_x, h), (0, 255, 255), 2)
 
             cv.imshow("Tablero Warpeado", tablero)
         else:
-            cv.imshow("Tablero Warpeado", np.zeros((*DST_SIZE, 3), dtype=np.uint8))
+            cv.imshow("Tablero Warpeado", np.zeros((800, 800, 3), dtype=np.uint8))
 
+        cv.putText(frame, f"ESTADO: {detector.estado}", (10, 30), cv.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 255), 2)
+        if detector.estado == "FIJADO":
+            cv.putText(frame, f"REFRESCO EN: {detector.refresco_frames - detector.contador_frames} frames", (10, 65), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+            
         cv.imshow("Video Original", frame)
 
-        if cv.waitKey(30) & 0xFF == 27: 
+        if cv.waitKey(30) & 0xFF == 27:
             break
 
     cap.release()
