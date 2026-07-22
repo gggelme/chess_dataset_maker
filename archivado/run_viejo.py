@@ -4,18 +4,18 @@ import time
 import os
 import sys
 
-# python src/run.py  
+# python archivado/run_viejo.py  
 
-dir_src  = os.path.dirname(os.path.abspath(__file__))
-dir_raiz = os.path.dirname(dir_src)
+dir_archivado  = os.path.dirname(os.path.abspath(__file__))
+dir_raiz = os.path.dirname(dir_archivado)
 
 sys.path.insert(0, dir_raiz)
 
-from src.parser.detect_movements import (get_energia, inicializar_tablero, obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
+from detect_movements_viejo import (get_energia, inicializar_tablero, obtener_celdas_cambiadas, inferir_movimiento_legal, chess_board_a_matriz,)
 
-from ui.virtual_board import LiveBoard
-from ui.stockfish_advisor import StockfishAdvisor
-from data_logger import GameLogger
+from src.ui.virtual_board import LiveBoard
+from src.ui.stockfish_advisor import StockfishAdvisor
+from src.data_logger import GameLogger
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
@@ -108,7 +108,7 @@ def main():
                     print("Stockfish listo.")
                 except Exception as e:
                     print(f"Stockfish no disponible: {e}")
-                logger = GameLogger(os.path.join(dir_raiz, "data", "log"))
+                logger = GameLogger(os.path.join(dir_archivado, "log"))
                 print("Tablero inicializado.")
             except Exception as e:
                 print(f"Inicialización fallida: {e}. Reintentando...")

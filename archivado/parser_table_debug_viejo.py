@@ -3,13 +3,13 @@ import numpy as np
 import os
 import sys
 
-# python src/parser/parser_table_debug.py
+# python archivado/parser_table_debug_viejo.py
 
 dir_actual = os.path.dirname(os.path.abspath(__file__))
-dir_proyecto = os.path.dirname(os.path.dirname(dir_actual))
+dir_proyecto = os.path.dirname(dir_actual) 
 sys.path.insert(0, dir_proyecto)
 
-from src.parser.parser_table import ParserTable
+from archivado.parser_table_viejo import ParserTable
 
 def test_parser_video(video_path):
     cap = cv2.VideoCapture(video_path)
