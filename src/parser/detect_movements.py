@@ -7,7 +7,7 @@ from parser_table import DetectorTablero
 
 _TIPO_CHESS_A_VALOR = {
     chess.PAWN: 1, chess.KNIGHT: 2, chess.BISHOP: 3, 
-    chess.ROOK: 4, chess.KING: 6, chess.QUEEN: 5}
+    chess.ROOK: 4, chess.KING: 5, chess.QUEEN: 6}
 
 def chess_board_a_matriz(board_logico):
     matriz = np.zeros((8, 8), dtype=int)

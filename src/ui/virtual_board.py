@@ -175,7 +175,7 @@ class LiveBoard:
                 pygame.quit()
                 return False
 
-        self.pantalla.blit(pygame.transform.flip(self.assets['fondo'], True, False), (0, 0))
+        self.pantalla.blit(self.assets['fondo'], (0, 0))
         
         filas, cols = np.nonzero(matriz)
         for f, c in zip(filas, cols):

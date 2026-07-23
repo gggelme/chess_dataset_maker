@@ -101,13 +101,12 @@ def main():
             print("\n[!] Referencia visual limpia.")
             
         elif key == ord(' '): # EVENTO: Analizar jugada
-            # 1. Filtro más suave (25 en vez de 45) y recuperamos la energía real
+            # 1. Binarizamos para aislar el área que cambió
             _, diff_thresh = cv.threshold(diff_preview, 25, 255, cv.THRESH_BINARY)
             diff_clean = cv.morphologyEx(diff_thresh, cv.MORPH_OPEN, np.ones((3,3), np.uint8))
-            diff_masked = cv.bitwise_and(diff_preview, diff_preview, mask=diff_clean)
             
-            # 2. Pasamos la máscara con un umbral de energía absoluto (ej. 80)
-            cambiadas, energias_celdas = obtener_celdas_cambiadas(diff_masked, 80)
+            # 2. Pasamos diff_clean y el umbral porcentual (0.15) correcto
+            cambiadas, energias_celdas = obtener_celdas_cambiadas(diff_clean, UMBRAL_PIEZA)
             print(f"\n[*] INTERRUPCIÓN MANUAL. Analizando celdas: {cambiadas}")
 
             # Capturar estado antes de la jugada
@@ -115,7 +114,7 @@ def main():
             clave_sug = 'blancas' if turno_antes == chess.WHITE else 'negras'
             datos_sug = live_board.sugerencias.get(clave_sug) if live_board else None
             
-            # 3. Desempaquetamos la tupla nueva para que el logger guarde texto limpio
+            # 3. Desempaquetamos la tupla (texto, uci) de forma segura
             sug_txt = datos_sug[0] if isinstance(datos_sug, tuple) else datos_sug
 
             # Inferencia lógica
