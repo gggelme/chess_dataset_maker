@@ -1,4 +1,11 @@
 {
   "jugador": "blancas",
-  "movimientos": []
+  "movimientos": [
+    {
+      "numero": 1,
+      "jugada": "a3",
+      "uci": "a2a3",
+      "recomendado": null
+    }
+  ]
 }
