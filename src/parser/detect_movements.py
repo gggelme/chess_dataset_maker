@@ -7,8 +7,7 @@ from parser_table import DetectorTablero
 
 _TIPO_CHESS_A_VALOR = {
     chess.PAWN: 1, chess.KNIGHT: 2, chess.BISHOP: 3, 
-    chess.ROOK: 4, chess.KING: 5, chess.QUEEN: 6
-}
+    chess.ROOK: 4, chess.KING: 6, chess.QUEEN: 5}
 
 def chess_board_a_matriz(board_logico):
     matriz = np.zeros((8, 8), dtype=int)
@@ -25,19 +24,34 @@ def celda_a_square(fila, col):
 def celda_a_uci(fila, col):
     return "abcdefgh"[col] + str(8 - fila)
 
-def obtener_celdas_cambiadas(diff_warp, umbral_pieza, max_celdas=6):
-    h, w = diff_warp.shape
+def obtener_celdas_cambiadas(diff_clean, umbral_area_celda=0.15, max_celdas=6):
+    """
+    Evalúa qué celdas tuvieron un cambio significativo de área.
+    Recibe la imagen binarizada (diff_clean) en lugar de la imagen continua.
+    """
+    h, w = diff_clean.shape
     paso_y, paso_x = h // 8, w // 8
+    
     energias = np.zeros((8, 8), dtype=np.float32)
+    cambiadas = []
     
     for i in range(8):
         for j in range(8):
-            celda = diff_warp[i*paso_y:(i+1)*paso_y, j*paso_x:(j+1)*paso_x]
-            energias[i, j] = np.mean(celda.astype(np.float32)**2)
+            # Recortar la celda de la imagen limpia/binarizada
+            celda = diff_clean[i*paso_y:(i+1)*paso_y, j*paso_x:(j+1)*paso_x]
             
-    validos = np.where(energias > umbral_pieza)
-    coords = list(zip(validos[0], validos[1]))
-    return sorted(coords, key=lambda c: energias[c[0], c[1]], reverse=True)[:max_celdas], energias
+            # Calcular qué porcentaje de la celda es "blanco" (cambio detectado)
+            porcentaje_cambio = np.count_nonzero(celda) / celda.size
+            energias[i, j] = porcentaje_cambio
+            
+            if porcentaje_cambio > umbral_area_celda:
+                cambiadas.append(((i, j), porcentaje_cambio))
+                
+    # Ordenar las celdas de mayor a menor cambio
+    cambiadas.sort(key=lambda x: x[1], reverse=True)
+    coords = [c[0] for c in cambiadas[:max_celdas]]
+    
+    return coords, energias
 
 def _celdas_afectadas(board_logico, mov):
     antes = {sq: pieza.symbol() for sq, pieza in board_logico.piece_map().items()}
@@ -85,38 +99,38 @@ def inferir_movimiento(board_logico, cambiadas, energias_celdas):
     return mejor_mov, san
 
 # ==========================================
-# UTILIDAD VISUAL
-# ==========================================
-def dibujar_grilla_en_camara(frame, esquinas):
-    """Interpola los puntos de las esquinas para dibujar la grilla 8x8 con perspectiva."""
-    TL, TR, BR, BL = esquinas
-    for i in range(1, 8):
-        f = i / 8.0
-        # Lineas horizontales
-        izq = TL * (1 - f) + BL * f
-        der = TR * (1 - f) + BR * f
-        cv.line(frame, tuple(izq.astype(int)), tuple(der.astype(int)), (0, 150, 0), 1)
-        # Lineas verticales
-        sup = TL * (1 - f) + TR * f
-        inf = BL * (1 - f) + BR * f
-        cv.line(frame, tuple(sup.astype(int)), tuple(inf.astype(int)), (0, 150, 0), 1)
-
-# ==========================================
 # BUCLE PRINCIPAL
 # ==========================================
 if __name__ == "__main__":
     VIVO = True
-    VIDEO_PATH = "data/raw/Prueba2.mp4" 
+    VIDEO_PATH = "../../data/raw/Prueba2.mp4" 
     
-    UMBRAL_INTERRUPCION = 600
-    UMBRAL_PIEZA = 80
-    UMBRAL_MINIMO = 30
-    FRAMES_ESTABLES_REQ = 4
+    UMBRAL_MANO = 4.0          # % de cambio global para considerar oclusión (mano)
+    UMBRAL_MOVIMIENTO = 0.5    # % de cambio global para considerar que se movió una pieza
+    UMBRAL_PIEZA = 0.15        # % del área de una celda
+    FRAMES_ESTABLES_REQ = 4    # Frames consecutivos quietos para salir del estado de interrupción
+    
     DISPLAY_SIZE = (400, 400)
 
     cap = cv.VideoCapture(1 if VIVO else VIDEO_PATH)
-    detector = DetectorTablero(vivo=VIVO, refresco_frames=500, offset=70)  
     
+    if VIVO:
+        cap.set(cv.CAP_PROP_AUTOFOCUS, 0)
+        cap.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
+    
+    parser = DetectorTablero(offset=70)
+    prev_corners = None
+    
+    cv.namedWindow("Camara Original", cv.WINDOW_NORMAL)
+    cv.namedWindow("Referencia", cv.WINDOW_NORMAL)
+    cv.namedWindow("Tablero Actual", cv.WINDOW_NORMAL)
+    cv.namedWindow("Diferencia", cv.WINDOW_NORMAL)
+
+    cv.resizeWindow("Camara Original", 400, 400)
+    cv.resizeWindow("Referencia", 400, 400)
+    cv.resizeWindow("Tablero Actual", 400, 400)
+    cv.resizeWindow("Diferencia", 400, 400)
+
     board_logico = chess.Board()
     matriz_estado = chess_board_a_matriz(board_logico)
     ultimo_mov_str = "Ninguno"
@@ -131,82 +145,101 @@ if __name__ == "__main__":
         ret, frame = cap.read()
         if not ret: break
 
-        tablero_bgr, esquinas = detector.procesar_frame(frame)
+        parser.update_frame(frame)
+        
+        try:
+            prev_corners = parser.detect_board_corners(prev_corners)
+            tablero_bgr = parser.get_board_roi()
+        except ValueError:
+            cv.imshow("Camara Original", frame)
+            if cv.waitKey(30) & 0xFF == 27: break
+            continue
 
-        if tablero_bgr is not None:
-            tablero_gray = cv.cvtColor(tablero_bgr, cv.COLOR_BGR2GRAY)
-            tablero_gray = cv.GaussianBlur(tablero_gray, (5, 5), 0)
+        tablero_gray = cv.cvtColor(tablero_bgr, cv.COLOR_BGR2GRAY)
+        tablero_gray = cv.GaussianBlur(tablero_gray, (5, 5), 0)
 
-            if detector.estado == "FIJADO" and detector.contador_frames <= 1:
-                warp_ref = tablero_gray.copy()
-                post_interrupcion = False
-                frames_estables = 0
-                continue
-
-            if warp_ref is None:
-                warp_ref = tablero_gray.copy()
-                continue
+        if warp_ref is None:
+            warp_ref = tablero_gray.copy()
+            continue
             
+        # 1. Diferencia y limpieza morfológica
+        diff = cv.absdiff(tablero_gray, warp_ref)
+        _, diff_thresh = cv.threshold(diff, 45, 255, cv.THRESH_BINARY)
+        diff_clean = cv.morphologyEx(diff_thresh, cv.MORPH_OPEN, np.ones((3,3), np.uint8))
+        
+        diff_masked = cv.bitwise_and(diff, diff, mask=diff_clean)
 
-            # Reemplazar la obtención de la diferencia directa por una binarizada
-            diff = cv.absdiff(tablero_gray, warp_ref)
-            _, diff_thresh = cv.threshold(diff, 25, 255, cv.THRESH_BINARY)
-            diff_clean = cv.morphologyEx(diff_thresh, cv.MORPH_OPEN, np.ones((3,3), np.uint8))
-            energia_global = np.mean(diff_clean.astype(np.float32) ** 2)
+        # 2. NUEVA MÉTRICA: Porcentaje de píxeles cambiados
+        porcentaje_cambio = (np.count_nonzero(diff_clean) / diff_clean.size) * 100.0
+        
+        estado_txt = ""
+        color_txt = (0, 0, 0)
 
-            #diff = cv.absdiff(tablero_gray, warp_ref)
-            #energia_global = np.mean(diff.astype(np.float32) ** 2)
-
-            if energia_global > UMBRAL_INTERRUPCION:
-                frames_estables = 0
-                post_interrupcion = True
-                estado_txt = "INTERRUPCION"
-                color_txt = (0, 0, 255)
-            else:
-                if post_interrupcion:
-                    frames_estables += 1
-                    estado_txt = f"ESTABILIZANDO ({frames_estables}/{FRAMES_ESTABLES_REQ})"
-                    color_txt = (0, 165, 255)
-                    
-                    if frames_estables >= FRAMES_ESTABLES_REQ:
-                        if energia_global >= UMBRAL_MINIMO:
-                            cambiadas, energias_celdas = obtener_celdas_cambiadas(diff, UMBRAL_PIEZA)
-                            
-                            # DEBUG: Imprimir las celdas alteradas antes de inferir
-                            print(f"[*] Celdas con energía alta: {cambiadas}")
-                            
-                            mov, san = inferir_movimiento(board_logico, cambiadas, energias_celdas)
-                            
-                            if mov:
-                                ultimo_mov_str = f"{mov.uci()} ({san})"
-                                matriz_estado = chess_board_a_matriz(board_logico)
-                                print(f"\n[+] Movimiento: {ultimo_mov_str}\n{matriz_estado}")
-                            else:
-                                print("[-] No se pudo inferir un movimiento legal con esas celdas.")
+        if porcentaje_cambio > UMBRAL_MANO:
+            frames_estables = 0
+            post_interrupcion = True
+            estado_txt = "Mano Detectada (Oclusion)"
+            color_txt = (0, 0, 255)
+        else:
+            if post_interrupcion:
+                frames_estables += 1
+                estado_txt = f"Estabilizando... ({frames_estables}/{FRAMES_ESTABLES_REQ})"
+                color_txt = (0, 165, 255)
+                
+                if frames_estables >= FRAMES_ESTABLES_REQ:
+                    # Validar si hubo movimiento real o fue solo una sombra pasajera
+                    if porcentaje_cambio >= UMBRAL_MOVIMIENTO:
+                        # Pasamos 'diff_clean' o 'diff' enmascarado para evitar ruido en las celdas
+                        cambiadas, energias_celdas = obtener_celdas_cambiadas(diff_clean, UMBRAL_PIEZA)
                         
-                        warp_ref = tablero_gray.copy() 
-                        post_interrupcion = False
-                        frames_estables = 0
-                else:
-                    estado_txt = "ESTABLE"
-                    color_txt = (0, 255, 0)
-                    if energia_global < (UMBRAL_MINIMO * 0.7):
-                        warp_ref = cv.addWeighted(warp_ref, 0.95, tablero_gray, 0.05, 0)
-                        frames_estables = 0
+                        print(f"\n[*] Movimiento detectado. Celdas alteradas: {cambiadas}")
+                        mov, san = inferir_movimiento(board_logico, cambiadas, energias_celdas)
+                        
+                        if mov:
+                            ultimo_mov_str = f"{mov.uci()} ({san})"
+                            matriz_estado = chess_board_a_matriz(board_logico)
+                            print(f"[+] Movimiento VALIDO: {ultimo_mov_str}\n{matriz_estado}")
+                        else:
+                            print("[-] Movimiento INVALIDO o no inferido.")
+                    
+                    # Forzar la actualización dura de la referencia post-movimiento
+                    warp_ref = tablero_gray.copy() 
+                    post_interrupcion = False
+                    frames_estables = 0
+            else:
+                estado_txt = "Tablero Estable"
+                color_txt = (0, 255, 0)
+                # Si estamos estables y el cambio no llega a ser una pieza entera,
+                # forzamos la absorción del ruido actualizando la referencia más rápido.
+                if porcentaje_cambio < UMBRAL_MOVIMIENTO:
+                    warp_ref = cv.addWeighted(warp_ref, 0.90, tablero_gray, 0.10, 0)
+                    frames_estables = 0
 
-            # --- DIBUJOS EN LA CÁMARA ---
-            dibujar_grilla_en_camara(frame, esquinas)
-            cv.polylines(frame, [esquinas.astype(np.int32)], True, color_txt, 2)
-            cv.putText(frame, f"Estado: {estado_txt}", (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.7, color_txt, 2)
-            cv.putText(frame, f"Ultimo mov: {ultimo_mov_str}", (10, 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        # --- DIBUJAR SOBRE LA CÁMARA (Proyección de Grilla por Homografía) ---
+        if parser.H is not None:
+            H_inv = np.linalg.inv(parser.H)
+            pasos = parser.get_math_grid()
+            lado = parser.LADO_DESTINO
             
-            diff_visual = cv.normalize(diff, None, 0, 255, cv.NORM_MINMAX)
-            cv.imshow("Referencia", cv.resize(warp_ref, DISPLAY_SIZE))
-            cv.imshow("Tablero Actual", cv.resize(tablero_gray, DISPLAY_SIZE))
-            cv.imshow("Diferencia", cv.resize(diff_visual, DISPLAY_SIZE))
+            # Dibujar contorno exterior
+            cv.polylines(frame, [parser.esquinas.astype(np.int32)], True, color_txt, 3)
             
-        h_cam, w_cam = frame.shape[:2]
-        cv.imshow("Camara Original", cv.resize(frame, (w_cam // 2, h_cam // 2)))
+            # Dibujar grilla 8x8 con perspectiva real
+            for p in pasos:
+                orig_h = cv.perspectiveTransform(np.array([[[0, p], [lado, p]]], dtype=np.float32), H_inv)
+                orig_v = cv.perspectiveTransform(np.array([[[p, 0], [p, lado]]], dtype=np.float32), H_inv)
+                cv.line(frame, tuple(map(int, orig_h[0][0])), tuple(map(int, orig_h[0][1])), (255, 0, 0), 1)
+                cv.line(frame, tuple(map(int, orig_v[0][0])), tuple(map(int, orig_v[0][1])), (255, 0, 0), 1)
+
+        cv.putText(frame, f"Estado: {estado_txt}", (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.7, color_txt, 2)
+        cv.putText(frame, f"Ultimo mov: {ultimo_mov_str}", (10, 60), cv.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+        
+        diff_visual = cv.normalize(diff_masked, None, 0, 255, cv.NORM_MINMAX)
+        cv.imshow("Referencia", cv.resize(warp_ref, DISPLAY_SIZE))
+        cv.imshow("Tablero Actual", cv.resize(tablero_gray, DISPLAY_SIZE))
+        cv.imshow("Diferencia", cv.resize(diff_visual, DISPLAY_SIZE))
+        
+        cv.imshow("Camara Original", frame)
 
         if cv.waitKey(30) & 0xFF == 27:
             break

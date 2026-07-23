@@ -11,18 +11,19 @@ sys.path.insert(0, dir_proyecto)
 
 from archivado.parser_table_viejo import ParserTable
 
-def test_parser_video(video_path):
-    cap = cv2.VideoCapture(video_path)
+def test_parser_video(source):
+    # 'source' puede ser una ruta de archivo (str) o el índice de la cámara (int)
+    cap = cv2.VideoCapture(source)
     if not cap.isOpened():
-        print(f"Error: No se pudo abrir el video {video_path}")
+        print(f"Error: No se pudo abrir la fuente {source}")
         return
 
-    # Color amarillo claro en BGR
     AMARILLO_CLARO = (153, 255, 255) 
 
     while True:
         ret, frame = cap.read()
         if not ret:
+            print("No se pudo obtener el frame (Fin del video o cámara desconectada).")
             break
 
         gris = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -72,5 +73,15 @@ def test_parser_video(video_path):
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    ruta_video = os.path.join(dir_proyecto, "data", "raw", "partida_larga_normal.mp4")
-    test_parser_video(ruta_video)
+    
+    VIVO = True
+    
+    if VIVO:
+        print("Iniciando captura en VIVO con la cámara...")
+        fuente = 1
+    else:
+        ruta_video = os.path.join(dir_proyecto, "data", "raw", "partida_larga_normal.mp4")
+        print(f"Iniciando captura desde VIDEO: {ruta_video}")
+        fuente = ruta_video
+
+    test_parser_video(fuente)
