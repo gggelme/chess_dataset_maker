@@ -33,11 +33,17 @@ class LiveBoard:
         # Inicialización
         pygame.init()
         pygame.font.init()
-        self.fuente        = pygame.font.SysFont("Verdana", 22, bold=True)
-        self.fuente_chica  = pygame.font.SysFont("Verdana", 18)
-        self.fuente_mini   = pygame.font.SysFont("Verdana", 14)
 
-        self.fuente_grande = pygame.font.SysFont("Verdana", 36, bold=True)
+        ruta_font_med = os.path.join(self.carpeta_assets, "menu", "Montserrat-Medium.ttf")
+        ruta_font_bold = os.path.join(self.carpeta_assets, "menu", "Montserrat-Bold.ttf")
+
+        self.fuente        = pygame.font.Font(ruta_font_bold, 22)
+        self.fuente_chica  = pygame.font.Font(ruta_font_med, 18)
+        self.fuente_chica_bold = pygame.font.Font(ruta_font_bold, 18)
+        self.fuente_mini   = pygame.font.Font(ruta_font_med, 14)
+
+        self.fuente_grande = pygame.font.Font(ruta_font_bold, 36)
+
         self.resultado_final = None # Guardará '1-0', '0-1' o '1/2-1/2'
 
         # Pantalla más ancha para incluir el panel
@@ -46,6 +52,7 @@ class LiveBoard:
         self.assets = self._cargar_assets()
 
         self.ultimo_tick = pygame.time.get_ticks()
+        self.modo_visor = False
 
 
     def _inferir_turno(self, matriz_nueva):
@@ -79,7 +86,7 @@ class LiveBoard:
 
 
     def _dibujar_panel(self):
-        COLOR_FONDO   = (30, 33, 40) # Un tono más oscuro y elegante
+        COLOR_FONDO   = (17, 31, 57)
         COLOR_SUBTIT  = (140, 145, 155)
         COLOR_BLANCAS = (255, 210, 80)
         COLOR_NEGRAS  = (90, 170, 255)
@@ -89,18 +96,23 @@ class LiveBoard:
         pygame.draw.rect(self.pantalla, COLOR_FONDO, rect_panel)
 
         # ── Control de Tiempo ──────────────────────────────────────────────
-        self.pantalla.blit(self.fuente_chica.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT), (x0 + 20, 20))
+        self.pantalla.blit(self.fuente_chica_bold.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT), (x0 + 20, 20))
 
         def dibujar_reloj(y, titulo, tiempo, activo):
-            color_caja  = (46, 160, 67) if activo else (45, 48, 56)
-            color_texto = (255, 255, 255) if activo else (180, 185, 195)
+            color_caja  = (46, 160, 67) if activo and not self.modo_visor else (45, 48, 56)
+            color_texto = (255, 255, 255) if activo and not self.modo_visor else (180, 185, 195)
             
             caja = pygame.Rect(x0 + 20, y, 210, 65)
             pygame.draw.rect(self.pantalla, color_caja, caja, border_radius=8)
             
-            m, s = divmod(int(tiempo), 60)
+            if self.modo_visor:
+                texto_tiempo = "No disp."
+            else:
+                m, s = divmod(int(tiempo), 60)
+                texto_tiempo = f"{m:02d}:{s:02d}"
+
             self.pantalla.blit(self.fuente_chica.render(titulo, True, color_texto), (caja.x + 15, caja.y + 10))
-            self.pantalla.blit(self.fuente.render(f"{m:02d}:{s:02d}", True, color_texto), (caja.x + 15, caja.y + 32))
+            self.pantalla.blit(self.fuente.render(texto_tiempo, True, color_texto), (caja.x + 15, caja.y + 32))
 
         dibujar_reloj(55, "Blancas", self.tiempos[1],  self.turno == 1)
         dibujar_reloj(135, "Negras", self.tiempos[-1], self.turno == -1)
@@ -109,7 +121,7 @@ class LiveBoard:
         sep_y = 230
         pygame.draw.line(self.pantalla, (55, 60, 70), (x0 + 20, sep_y), (x0 + 230, sep_y), 2)
         
-        self.pantalla.blit(self.fuente_chica.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
+        self.pantalla.blit(self.fuente_chica_bold.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
 
         def dibujar_sugerencia(y, titulo, datos_sug, color_acento):
             caja = pygame.Rect(x0 + 20, y, 210, 60)
@@ -161,7 +173,7 @@ class LiveBoard:
                 # Celda de destino
                 pygame.draw.rect(self.pantalla, color, (c2*t, r2*t, t, t), 4)
 
-    def actualizar(self, matriz):
+    def actualizar(self, matriz, eventos_externos=None):
         if not isinstance(matriz, np.ndarray):
             raise TypeError("Se esperaba un numpy.ndarray.")
         
@@ -175,10 +187,12 @@ class LiveBoard:
             self.tiempos[self.turno] += dt
             self._inferir_turno(matriz)
 
-        for evento in pygame.event.get():
+        eventos = eventos_externos if eventos_externos is not None else pygame.event.get()
+
+        for evento in eventos:
             if evento.type == pygame.QUIT:
                 self.corriendo = False
-                pygame.quit()
+                # pygame.quit()
                 return False
 
         self.pantalla.blit(self.assets['fondo'], (0, 0))
@@ -203,9 +217,6 @@ class LiveBoard:
             rect = txt_superficie.get_rect(center=(self.ancho_tablero // 2, self.ancho_tablero // 2))
             self.pantalla.blit(txt_superficie, rect)
             
-        pygame.display.flip()
-        return True
-    
         pygame.display.flip()
         return True
 

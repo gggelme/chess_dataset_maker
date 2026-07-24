@@ -1,17 +1,4 @@
 {
   "jugador": "negras",
-  "movimientos": [
-    {
-      "numero": 1,
-      "jugada": "e6",
-      "uci": "e7e6",
-      "recomendado": "e5  +72"
-    },
-    {
-      "numero": 2,
-      "jugada": "Qh4#",
-      "uci": "d8h4",
-      "recomendado": "Qh4#  M1"
-    }
-  ]
+  "movimientos": []
 }

@@ -3,6 +3,7 @@ import numpy as np
 import chess
 import os
 import sys
+import json
 
 # python src/run.py
 
@@ -17,6 +18,8 @@ from detect_movements import obtener_celdas_cambiadas, inferir_movimiento, chess
 from parser_table import DetectorTablero
 from virtual_board import LiveBoard
 from stockfish_advisor import StockfishAdvisor
+from menu import iniciar_menu
+from viewer import visualizar_partida
 from data_logger import GameLogger
 
 
@@ -27,7 +30,7 @@ UMBRAL_PIEZA = 0.15  # 15% de área de celda alterada
 OFFSET_TABLERO = 70  # Ajuste para descartar bordes físicos
 
 
-def main():
+def iniciar_deteccion():
     cap = cv.VideoCapture(1 if VIVO else URL)
     if not cap.isOpened():
         print(f"Error: no se pudo abrir la cámara o el archivo.")
@@ -148,4 +151,5 @@ def main():
     cv.destroyAllWindows()
 
 if __name__ == '__main__':
-    main()
+    #iniciar_deteccion()
+    iniciar_menu(iniciar_deteccion, visualizar_partida)
