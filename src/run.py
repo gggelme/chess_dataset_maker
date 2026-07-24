@@ -124,8 +124,15 @@ def main():
                 print(f"[+] Movimiento Legal Validado: {mov.uci()} ({san})")
                 logger.registrar(turno_antes, san, mov.uci(), sug_txt)
                 
-                if advisor is not None:
-                    advisor.analizar_async(board_logico)
+                if board_logico.is_game_over():
+                    resultado = board_logico.result()
+                    live_board.set_resultado(resultado)
+                    live_board.sugerencias = {'blancas': None, 'negras': None} 
+                    print(f"\n[*] PARTIDA FINALIZADA. Resultado: {resultado}")
+                else:
+                    if advisor is not None:
+                        advisor.analizar_async(board_logico)
+                
                 live_board.actualizar(chess_board_a_matriz(board_logico))
             else:
                 print("[-] Movimiento INVÁLIDO. Revisá el tablero físico.")

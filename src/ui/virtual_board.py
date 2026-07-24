@@ -37,6 +37,9 @@ class LiveBoard:
         self.fuente_chica  = pygame.font.SysFont("Verdana", 18)
         self.fuente_mini   = pygame.font.SysFont("Verdana", 14)
 
+        self.fuente_grande = pygame.font.SysFont("Verdana", 36, bold=True)
+        self.resultado_final = None # Guardará '1-0', '0-1' o '1/2-1/2'
+
         # Pantalla más ancha para incluir el panel
         self.pantalla = pygame.display.set_mode((self.ancho_tablero + self.ancho_panel, self.ancho_tablero))
         pygame.display.set_caption("Tablero en Tiempo Real")
@@ -124,8 +127,10 @@ class LiveBoard:
             # Renderizado seguro
             if texto_mostrar:
                 txt_render = self.fuente.render(texto_mostrar, True, (220, 220, 220))
-            else:
+            elif self.resultado_final is None:
                 txt_render = self.fuente_chica.render("analizando...", True, (100, 105, 115))
+            else:
+                txt_render = self.fuente_chica.render("", True, (0, 0, 0))
 
             self.pantalla.blit(txt_render, (caja.x + 15, caja.y + 28))
 
@@ -166,8 +171,9 @@ class LiveBoard:
         dt = (ahora - self.ultimo_tick) / 1000.0  
         self.ultimo_tick = ahora
         
-        self.tiempos[self.turno] += dt
-        self._inferir_turno(matriz)
+        if self.resultado_final is None:
+            self.tiempos[self.turno] += dt
+            self._inferir_turno(matriz)
 
         for evento in pygame.event.get():
             if evento.type == pygame.QUIT:
@@ -185,8 +191,27 @@ class LiveBoard:
         self._dibujar_resaltados()        
         self._dibujar_panel()
 
+        if self.resultado_final:
+            textos = {"1-0": "¡Ganan las Blancas!", "0-1": "¡Ganan las Negras!", "1/2-1/2": "¡Tablas!"}
+            texto_mostrar = textos.get(self.resultado_final, "Fin del juego")
+            
+            fondo = pygame.Surface((self.ancho_tablero, 100), pygame.SRCALPHA)
+            fondo.fill((0, 0, 0, 190))
+            self.pantalla.blit(fondo, (0, self.ancho_tablero // 2 - 50))
+            
+            txt_superficie = self.fuente_grande.render(texto_mostrar, True, (255, 255, 255))
+            rect = txt_superficie.get_rect(center=(self.ancho_tablero // 2, self.ancho_tablero // 2))
+            self.pantalla.blit(txt_superficie, rect)
+            
         pygame.display.flip()
         return True
+    
+        pygame.display.flip()
+        return True
+
+    def set_resultado(self, resultado):
+        """Activa el cartel de fin de juego."""
+        self.resultado_final = resultado
 
 # prueba para ver si funciona, las matrices son de prueba
 if __name__ == "__main__":
