@@ -54,6 +54,9 @@ class LiveBoard:
         self.ultimo_tick = pygame.time.get_ticks()
         self.modo_visor = False
 
+        self.rect_btn_atras = pygame.Rect(0, 0, 0, 0)
+        self.rect_btn_adelante = pygame.Rect(0, 0, 0, 0)
+
 
     def _inferir_turno(self, matriz_nueva):
         """Infiere el turno viendo qué pieza desapareció de su origen."""
@@ -82,6 +85,12 @@ class LiveBoard:
         fondo = pygame.image.load(ruta_fondo).convert()
         assets['fondo'] = pygame.transform.smoothscale(fondo, (self.ancho_tablero, self.ancho_tablero))
 
+        # flechas
+        img_atras = pygame.image.load(os.path.join(self.carpeta_assets, "menu", "flecha_atras.png")).convert_alpha()
+        img_ade = pygame.image.load(os.path.join(self.carpeta_assets, "menu", "flecha_adelante.png")).convert_alpha()
+        assets['btn_atras'] = pygame.transform.smoothscale(img_atras, (80, 50))
+        assets['btn_adelante'] = pygame.transform.smoothscale(img_ade, (80, 50))
+        
         return assets
 
 
@@ -149,6 +158,33 @@ class LiveBoard:
         sug = self.sugerencias
         dibujar_sugerencia(sep_y + 45, "BLANCAS", sug.get('blancas'), COLOR_BLANCAS)
         dibujar_sugerencia(sep_y + 115, "NEGRAS",  sug.get('negras'),  COLOR_NEGRAS)
+
+
+        # ── Botones de Navegación (Modo Visor) ─────────────────────────────
+        # ── Botones de Navegación (Modo Visor) ─────────────────────────────
+        if self.modo_visor:
+            tamano_btn = 80
+            separacion = 20 # Espacio entre flechas
+            y_btn = self.ancho_tablero - 85 # Un poco más arriba para que respiren
+            
+            # Cálculo para centrar matemáticamente en el panel
+            ancho_total = (tamano_btn * 2) + separacion
+            margen_x = (self.ancho_panel - ancho_total) // 2
+            
+            self.rect_btn_atras = pygame.Rect(x0 + margen_x, y_btn, tamano_btn, tamano_btn)
+            self.rect_btn_adelante = pygame.Rect(x0 + margen_x + tamano_btn + separacion, y_btn, tamano_btn, tamano_btn)
+            
+            # Dibujar flecha atrás
+            if 'btn_atras' in self.assets:
+                self.pantalla.blit(self.assets['btn_atras'], self.rect_btn_atras)
+            else:
+                pygame.draw.rect(self.pantalla, (100, 100, 100), self.rect_btn_atras, border_radius=8)
+                
+            # Dibujar flecha adelante
+            if 'btn_adelante' in self.assets:
+                self.pantalla.blit(self.assets['btn_adelante'], self.rect_btn_adelante)
+            else:
+                pygame.draw.rect(self.pantalla, (100, 100, 100), self.rect_btn_adelante, border_radius=8)
 
     def _dibujar_resaltados(self):
         """Traduce el UCI ('e2e4') a coordenadas X,Y de la matriz y dibuja los rectángulos."""

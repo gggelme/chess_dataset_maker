@@ -83,6 +83,12 @@ def visualizar_partida():
                 elif evento.key == pygame.K_LEFT and indice > 0:
                     indice -= 1
 
+            elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                if tablero.rect_btn_adelante.collidepoint(evento.pos) and indice < len(estados) - 1:
+                    indice += 1
+                elif tablero.rect_btn_atras.collidepoint(evento.pos) and indice > 0:
+                    indice -= 1
+
         # Pasamos la matriz actual
         if not tablero.actualizar(estados[indice][0], eventos):
             corriendo = False

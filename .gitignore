@@ -7,3 +7,7 @@ env/
 data/raw/Chess Pieces Recognition/
 
 models/
+
+
+__pycache__/
+*.pyc
