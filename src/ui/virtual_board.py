@@ -108,15 +108,22 @@ class LiveBoard:
         
         self.pantalla.blit(self.fuente_chica.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
 
-        def dibujar_sugerencia(y, titulo, texto, color_acento):
+        def dibujar_sugerencia(y, titulo, datos_sug, color_acento):
             caja = pygame.Rect(x0 + 20, y, 210, 60)
             pygame.draw.rect(self.pantalla, (35, 38, 45), caja, border_radius=8)
             pygame.draw.rect(self.pantalla, color_acento, pygame.Rect(caja.x, caja.y, 4, caja.height), border_radius=4)
 
             self.pantalla.blit(self.fuente_mini.render(titulo, True, color_acento), (caja.x + 15, caja.y + 10))
 
-            if texto:
-                txt_render = self.fuente.render(texto, True, (220, 220, 220))
+            texto_mostrar = ""
+            if isinstance(datos_sug, tuple) and len(datos_sug) > 0:
+                texto_mostrar = str(datos_sug[0])
+            elif datos_sug is not None:
+                texto_mostrar = str(datos_sug)
+
+            # Renderizado seguro
+            if texto_mostrar:
+                txt_render = self.fuente.render(texto_mostrar, True, (220, 220, 220))
             else:
                 txt_render = self.fuente_chica.render("analizando...", True, (100, 105, 115))
 
@@ -126,6 +133,28 @@ class LiveBoard:
         dibujar_sugerencia(sep_y + 45, "BLANCAS", sug.get('blancas'), COLOR_BLANCAS)
         dibujar_sugerencia(sep_y + 115, "NEGRAS",  sug.get('negras'),  COLOR_NEGRAS)
 
+    def _dibujar_resaltados(self):
+        """Traduce el UCI ('e2e4') a coordenadas X,Y de la matriz y dibuja los rectángulos."""
+        COLOR_BLANCAS = (255, 210, 80)
+        COLOR_NEGRAS  = (90, 170, 255)
+        
+        for key, color in [('blancas', COLOR_BLANCAS), ('negras', COLOR_NEGRAS)]:
+            sug = self.sugerencias.get(key)
+            if isinstance(sug, tuple) and len(sug) > 1 and sug[1]:
+                uci = sug[1]
+                
+                # Conversión de UCI a índices de matriz 0-7
+                c1 = ord(uci[0]) - ord('a')
+                r1 = 8 - int(uci[1])
+                c2 = ord(uci[2]) - ord('a')
+                r2 = 8 - int(uci[3])
+                
+                t = self.tamano_celda
+                
+                # Celda de origen
+                pygame.draw.rect(self.pantalla, color, (c1*t, r1*t, t, t), 4)
+                # Celda de destino
+                pygame.draw.rect(self.pantalla, color, (c2*t, r2*t, t, t), 4)
 
     def actualizar(self, matriz):
         if not isinstance(matriz, np.ndarray):
@@ -133,15 +162,11 @@ class LiveBoard:
         
         if not self.corriendo: return False
 
-        # Actualizar reloj
         ahora = pygame.time.get_ticks()
         dt = (ahora - self.ultimo_tick) / 1000.0  
         self.ultimo_tick = ahora
         
-        # Sumamos el tiempo al jugador que tiene el turno
         self.tiempos[self.turno] += dt
-
-        # Inferir si hubo cambio de turno
         self._inferir_turno(matriz)
 
         for evento in pygame.event.get():
@@ -150,16 +175,14 @@ class LiveBoard:
                 pygame.quit()
                 return False
 
-        # Dibujado general
-        self.pantalla.blit(pygame.transform.flip(self.assets['fondo'], True, False), (0, 0))
+        self.pantalla.blit(self.assets['fondo'], (0, 0))
         
-        # Dibujar piezas (usando np.nonzero para mayor eficiencia)
         filas, cols = np.nonzero(matriz)
         for f, c in zip(filas, cols):
             pieza = matriz[f, c]
             self.pantalla.blit(self.assets[pieza], (c * self.tamano_celda, f * self.tamano_celda))
 
-        # Dibujar el panel UI
+        self._dibujar_resaltados()        
         self._dibujar_panel()
 
         pygame.display.flip()

@@ -19,7 +19,7 @@ from src.data_logger import GameLogger
 
 # ── Configuración ─────────────────────────────────────────────────────────────
 
-VIVO            = False
+VIVO            = True
 URL             = os.path.join(dir_raiz, "data", "raw", "partida_larga_normal.mp4")
 MS_MUESTREO     = 250    # cada cuántos ms se analiza un frame
 MS_MIN_REFRESCO = 1000   # cooldown post-detección (ms)
@@ -52,7 +52,7 @@ def _dibujar_energia(diff_warp, energias, y_pos, x_pos, umbral_pieza):
 # ── Loop principal ─────────────────────────────────────────────────────────────
 
 def main():
-    cap = cv.VideoCapture(0 if VIVO else URL)
+    cap = cv.VideoCapture(1 if VIVO else URL)
     if not cap.isOpened():
         print(f"Error: no se pudo abrir {'cámara' if VIVO else URL!r}")
         return

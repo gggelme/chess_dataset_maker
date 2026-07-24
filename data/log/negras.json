@@ -3,21 +3,45 @@
   "movimientos": [
     {
       "numero": 1,
-      "jugada": "h5",
-      "uci": "h7h5",
-      "recomendado": null
+      "jugada": "Na6",
+      "uci": "b8a6",
+      "recomendado": "e5  +25"
     },
     {
       "numero": 2,
-      "jugada": "Rh6",
-      "uci": "h8h6",
-      "recomendado": null
+      "jugada": "d5",
+      "uci": "d7d5",
+      "recomendado": "e5  +93"
     },
     {
       "numero": 3,
-      "jugada": "e6",
-      "uci": "e7e6",
-      "recomendado": null
+      "jugada": "Qd6",
+      "uci": "d8d6",
+      "recomendado": "Qd6  +534"
+    },
+    {
+      "numero": 4,
+      "jugada": "Be6",
+      "uci": "c8e6",
+      "recomendado": "Qg3+  +659"
+    },
+    {
+      "numero": 5,
+      "jugada": "O-O-O",
+      "uci": "e8a8",
+      "recomendado": "Qg3+  +613"
+    },
+    {
+      "numero": 6,
+      "jugada": "d4",
+      "uci": "d5d4",
+      "recomendado": "d4  +659"
+    },
+    {
+      "numero": 7,
+      "jugada": "Qd5",
+      "uci": "d6d5",
+      "recomendado": "Qg3+  +875"
     }
   ]
 }

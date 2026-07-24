@@ -83,11 +83,13 @@ class StockfishAdvisor:
                 score = result['score']
 
                 if score.is_mate():
-                    n        = score.white().mate() if color == chess.WHITE else score.black().mate()
-                    sug[key] = f"{san}  M{abs(n)}"
+                    n = score.white().mate() if color == chess.WHITE else score.black().mate()
+                    texto = f"{san}  M{abs(n)}"
                 else:
-                    cp       = score.white().score() if color == chess.WHITE else score.black().score()
-                    sug[key] = f"{san}  {cp:+d}" if cp is not None else san
+                    cp = score.white().score() if color == chess.WHITE else score.black().score()
+                    texto = f"{san}  {cp:+d}" if cp is not None else san
+
+                sug[key] = (texto, best.uci())
 
             except Exception:
                 sug[key] = None
