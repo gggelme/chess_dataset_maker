@@ -16,12 +16,16 @@ class DetectorTablero:
 
     def __init__(self, offset=0):
         self.offset = offset
-        self.esquinas_referencia = None
-        self.H = None
+        self.alfa = 0.15          
+        self.zona_muerta = 3.0    
+        self.reset() # Inicializamos el estado limpio
 
+    def reset(self):
+        """Borra la memoria para forzar una nueva detección."""
+        self.esquinas_referencia = None
         self.esquinas_suavizadas = None
-        self.alfa = 0.15          # Velocidad de adaptación del EMA (0.0 a 1.0)
-        self.zona_muerta = 3.0    # Umbral mínimo de movimiento en píxeles
+        self.H = None
+        self.paciencia_oclusion = 0
         
     def update_frame(self, frame):
         self._imagen_bgr = frame.copy()
@@ -50,14 +54,29 @@ class DetectorTablero:
                     max_mov = np.max(np.linalg.norm(nuevas_ord - prev_ord, axis=1))
                     variacion_area = abs(cv2.contourArea(nuevas_ord) - cv2.contourArea(prev_ord)) / cv2.contourArea(prev_ord)
                     
-                    # 1. Filtro de Oclusiones (manos)
-                    if max_mov > umbral_diff or variacion_area > 0.10:
-                        self.esquinas = prev_corners  # <-- Faltaba esta línea
+                    # Calculamos la varianza del interior del polígono propuesto
+                    x, y, w, h = cv2.boundingRect(np.int32(nuevas_ord))
+                    recorte = self._imagen_gris[y:y+h, x:x+w]
+                    varianza_actual = np.var(recorte) if recorte.size > 0 else 0
+                    
+                    # 1. Filtro de Oclusiones (salto brusco, cambio de área o pérdida de textura)
+                    if max_mov > umbral_diff or variacion_area > 0.10 or varianza_actual < 500:
+                        self.paciencia_oclusion += 1
+                        
+                        # Si pasa más de 15 frames (aprox 0.5 seg) tapado o deformado, asumimos que se movió físicamente
+                        if self.paciencia_oclusion > 15:
+                            self.reset()
+                            return None
+                            
+                        self.esquinas = prev_corners 
                         return prev_corners
+                        
+                    # Si llegamos acá, el movimiento del polígono es real y válido
+                    self.paciencia_oclusion = 0
                         
                     # 2. Zona Muerta (elimina el micro-ruido del sensor)
                     if max_mov < self.zona_muerta:
-                        self.esquinas = prev_corners  # <-- Y esta también
+                        self.esquinas = prev_corners
                         return prev_corners
 
                 # 3. Filtro EMA (suaviza transiciones válidas)
@@ -159,6 +178,10 @@ if __name__ == "__main__":
             # 1. Intentar detectar o recuperar el tablero anterior
             prev_corners = parser.detect_board_corners(prev_corners)
             
+            # ATENCIÓN: Si hubo reset, saltamos este frame para que no intente dibujar nada
+            if prev_corners is None:
+                continue
+            
             # 2. Obtener el ROI recto (esto calcula parser.H internamente)
             roi = parser.get_board_roi()
             
@@ -172,15 +195,12 @@ if __name__ == "__main__":
                 lado = parser.LADO_DESTINO
                 
                 for p in pasos:
-                    # Coordenadas de líneas en 2D (espacio del ROI)
                     pts_h = np.array([[[0, p], [lado, p]]], dtype=np.float32)
                     pts_v = np.array([[[p, 0], [p, lado]]], dtype=np.float32)
                     
-                    # Transformamos esas líneas al espacio 3D de la cámara
                     orig_h = cv2.perspectiveTransform(pts_h, H_inv)
                     orig_v = cv2.perspectiveTransform(pts_v, H_inv)
                     
-                    # Dibujamos las líneas azules de la grilla
                     cv2.line(frame, tuple(map(int, orig_h[0][0])), tuple(map(int, orig_h[0][1])), (255, 0, 0), 2)
                     cv2.line(frame, tuple(map(int, orig_v[0][0])), tuple(map(int, orig_v[0][1])), (255, 0, 0), 2)
             
@@ -188,7 +208,8 @@ if __name__ == "__main__":
             cv2.imshow("Tablero Warpeado (Blancas abajo)", roi)
             
         except ValueError:
-            pass
+            # Si lanza ValueError ("No se encontró tablero"), limpiamos prev_corners
+            prev_corners = None
             
         cv2.imshow("Camara Original", frame)
         
