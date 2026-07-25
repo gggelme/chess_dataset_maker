@@ -68,6 +68,6 @@ def iniciar_menu(funcion_detectar, funcion_visualizar):
     # --- BOTONES ---
     menu.add.button('  DETECTAR PARTIDA  ', btn_detectar)
     menu.add.button(' VISUALIZAR PARTIDA ', btn_visualizar)
-    menu.add.button('          SALIR          ', pygame_menu.events.EXIT)
+    menu.add.button('            SALIR            ', pygame_menu.events.EXIT)
 
     menu.mainloop(pantalla)
