@@ -3,45 +3,195 @@
   "movimientos": [
     {
       "numero": 1,
-      "jugada": "Na6",
-      "uci": "b8a6",
-      "recomendado": "e5  +25"
+      "jugada": "a6",
+      "uci": "a7a6",
+      "recomendado": "e5  +1"
     },
     {
       "numero": 2,
-      "jugada": "d5",
-      "uci": "d7d5",
-      "recomendado": "e5  +93"
+      "jugada": "Nf6",
+      "uci": "g8f6",
+      "recomendado": "e5  +70"
     },
     {
       "numero": 3,
-      "jugada": "Qd6",
-      "uci": "d8d6",
-      "recomendado": "Qd6  +534"
+      "jugada": "e5",
+      "uci": "e7e5",
+      "recomendado": "e5  +71"
     },
     {
       "numero": 4,
-      "jugada": "Be6",
-      "uci": "c8e6",
-      "recomendado": "Qg3+  +659"
+      "jugada": "Nc6",
+      "uci": "b8c6",
+      "recomendado": "Nc6  +74"
     },
     {
       "numero": 5,
-      "jugada": "O-O-O",
-      "uci": "e8a8",
-      "recomendado": "Qg3+  +613"
+      "jugada": "d5",
+      "uci": "d7d5",
+      "recomendado": "d5  +79"
     },
     {
       "numero": 6,
-      "jugada": "d4",
-      "uci": "d5d4",
-      "recomendado": "d4  +659"
+      "jugada": "h6",
+      "uci": "h7h6",
+      "recomendado": "h6  +75"
     },
     {
       "numero": 7,
-      "jugada": "Qd5",
-      "uci": "d6d5",
-      "recomendado": "Qg3+  +875"
+      "jugada": "Be6",
+      "uci": "c8e6",
+      "recomendado": "Be6  +64"
+    },
+    {
+      "numero": 8,
+      "jugada": "Qd7",
+      "uci": "d8d7",
+      "recomendado": "Qd7  +52"
+    },
+    {
+      "numero": 9,
+      "jugada": "Bd6",
+      "uci": "f8d6",
+      "recomendado": "Bd6  +48"
+    },
+    {
+      "numero": 10,
+      "jugada": "O-O",
+      "uci": "e8g8",
+      "recomendado": "O-O  +47"
+    },
+    {
+      "numero": 11,
+      "jugada": "Rfe8",
+      "uci": "f8e8",
+      "recomendado": "Rfe8  +62"
+    },
+    {
+      "numero": 12,
+      "jugada": "d4",
+      "uci": "d5d4",
+      "recomendado": "d4  +70"
+    },
+    {
+      "numero": 13,
+      "jugada": "dxc3",
+      "uci": "d4c3",
+      "recomendado": "dxc3  +72"
+    },
+    {
+      "numero": 14,
+      "jugada": "Nxb4",
+      "uci": "c6b4",
+      "recomendado": "Nxb4  +74"
+    },
+    {
+      "numero": 15,
+      "jugada": "Bxb4",
+      "uci": "d6b4",
+      "recomendado": "Bxb4  +78"
+    },
+    {
+      "numero": 16,
+      "jugada": "Qe7",
+      "uci": "d7e7",
+      "recomendado": "Qe7  +72"
+    },
+    {
+      "numero": 17,
+      "jugada": "Rad8",
+      "uci": "a8d8",
+      "recomendado": "Rad8  +78"
+    },
+    {
+      "numero": 18,
+      "jugada": "Ng4",
+      "uci": "f6g4",
+      "recomendado": "Ng4  +72"
+    },
+    {
+      "numero": 19,
+      "jugada": "Nxe5",
+      "uci": "g4e5",
+      "recomendado": "Nxe5  +75"
+    },
+    {
+      "numero": 20,
+      "jugada": "Qc5",
+      "uci": "e7c5",
+      "recomendado": "Qc5  +80"
+    },
+    {
+      "numero": 21,
+      "jugada": "Bxc5",
+      "uci": "b4c5",
+      "recomendado": "Bxc5  +64"
+    },
+    {
+      "numero": 22,
+      "jugada": "Bd4",
+      "uci": "c5d4",
+      "recomendado": "Bd4  +97"
+    },
+    {
+      "numero": 23,
+      "jugada": "Bb2",
+      "uci": "d4b2",
+      "recomendado": "Bb6  +104"
+    },
+    {
+      "numero": 24,
+      "jugada": "Bb3",
+      "uci": "e6b3",
+      "recomendado": "c5  -488"
+    },
+    {
+      "numero": 25,
+      "jugada": "c6",
+      "uci": "c7c6",
+      "recomendado": "c5  -697"
+    },
+    {
+      "numero": 26,
+      "jugada": "Rb8",
+      "uci": "d8b8",
+      "recomendado": "Rxe4  -701"
+    },
+    {
+      "numero": 27,
+      "jugada": "Rd8",
+      "uci": "e8d8",
+      "recomendado": "Rxb8  -758"
+    },
+    {
+      "numero": 28,
+      "jugada": "Kh7",
+      "uci": "g8h7",
+      "recomendado": null
+    },
+    {
+      "numero": 29,
+      "jugada": "hxg5",
+      "uci": "h6g5",
+      "recomendado": null
+    },
+    {
+      "numero": 30,
+      "jugada": "c5",
+      "uci": "c6c5",
+      "recomendado": null
+    },
+    {
+      "numero": 31,
+      "jugada": "Kg8",
+      "uci": "h7g8",
+      "recomendado": null
+    },
+    {
+      "numero": 32,
+      "jugada": "Kh8",
+      "uci": "g8h8",
+      "recomendado": null
     }
   ]
 }

@@ -33,9 +33,18 @@ class LiveBoard:
         # Inicialización
         pygame.init()
         pygame.font.init()
-        self.fuente        = pygame.font.SysFont("Verdana", 22, bold=True)
-        self.fuente_chica  = pygame.font.SysFont("Verdana", 18)
-        self.fuente_mini   = pygame.font.SysFont("Verdana", 14)
+
+        ruta_font_med = os.path.join(self.carpeta_assets, "menu", "Montserrat-Medium.ttf")
+        ruta_font_bold = os.path.join(self.carpeta_assets, "menu", "Montserrat-Bold.ttf")
+
+        self.fuente        = pygame.font.Font(ruta_font_bold, 22)
+        self.fuente_chica  = pygame.font.Font(ruta_font_med, 18)
+        self.fuente_chica_bold = pygame.font.Font(ruta_font_bold, 18)
+        self.fuente_mini   = pygame.font.Font(ruta_font_med, 14)
+
+        self.fuente_grande = pygame.font.Font(ruta_font_bold, 36)
+
+        self.resultado_final = None # Guardará '1-0', '0-1' o '1/2-1/2'
 
         # Pantalla más ancha para incluir el panel
         self.pantalla = pygame.display.set_mode((self.ancho_tablero + self.ancho_panel, self.ancho_tablero))
@@ -43,6 +52,10 @@ class LiveBoard:
         self.assets = self._cargar_assets()
 
         self.ultimo_tick = pygame.time.get_ticks()
+        self.modo_visor = False
+
+        self.rect_btn_atras = pygame.Rect(0, 0, 0, 0)
+        self.rect_btn_adelante = pygame.Rect(0, 0, 0, 0)
 
 
     def _inferir_turno(self, matriz_nueva):
@@ -72,11 +85,17 @@ class LiveBoard:
         fondo = pygame.image.load(ruta_fondo).convert()
         assets['fondo'] = pygame.transform.smoothscale(fondo, (self.ancho_tablero, self.ancho_tablero))
 
+        # flechas
+        img_atras = pygame.image.load(os.path.join(self.carpeta_assets, "menu", "flecha_atras.png")).convert_alpha()
+        img_ade = pygame.image.load(os.path.join(self.carpeta_assets, "menu", "flecha_adelante.png")).convert_alpha()
+        assets['btn_atras'] = pygame.transform.smoothscale(img_atras, (80, 50))
+        assets['btn_adelante'] = pygame.transform.smoothscale(img_ade, (80, 50))
+        
         return assets
 
 
     def _dibujar_panel(self):
-        COLOR_FONDO   = (30, 33, 40) # Un tono más oscuro y elegante
+        COLOR_FONDO   = (17, 31, 57)
         COLOR_SUBTIT  = (140, 145, 155)
         COLOR_BLANCAS = (255, 210, 80)
         COLOR_NEGRAS  = (90, 170, 255)
@@ -86,18 +105,23 @@ class LiveBoard:
         pygame.draw.rect(self.pantalla, COLOR_FONDO, rect_panel)
 
         # ── Control de Tiempo ──────────────────────────────────────────────
-        self.pantalla.blit(self.fuente_chica.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT), (x0 + 20, 20))
+        self.pantalla.blit(self.fuente_chica_bold.render("CONTROL DE TIEMPO", True, COLOR_SUBTIT), (x0 + 20, 20))
 
         def dibujar_reloj(y, titulo, tiempo, activo):
-            color_caja  = (46, 160, 67) if activo else (45, 48, 56)
-            color_texto = (255, 255, 255) if activo else (180, 185, 195)
+            color_caja  = (46, 160, 67) if activo and not self.modo_visor else (45, 48, 56)
+            color_texto = (255, 255, 255) if activo and not self.modo_visor else (180, 185, 195)
             
             caja = pygame.Rect(x0 + 20, y, 210, 65)
             pygame.draw.rect(self.pantalla, color_caja, caja, border_radius=8)
             
-            m, s = divmod(int(tiempo), 60)
+            if self.modo_visor:
+                texto_tiempo = "No disp."
+            else:
+                m, s = divmod(int(tiempo), 60)
+                texto_tiempo = f"{m:02d}:{s:02d}"
+
             self.pantalla.blit(self.fuente_chica.render(titulo, True, color_texto), (caja.x + 15, caja.y + 10))
-            self.pantalla.blit(self.fuente.render(f"{m:02d}:{s:02d}", True, color_texto), (caja.x + 15, caja.y + 32))
+            self.pantalla.blit(self.fuente.render(texto_tiempo, True, color_texto), (caja.x + 15, caja.y + 32))
 
         dibujar_reloj(55, "Blancas", self.tiempos[1],  self.turno == 1)
         dibujar_reloj(135, "Negras", self.tiempos[-1], self.turno == -1)
@@ -106,7 +130,7 @@ class LiveBoard:
         sep_y = 230
         pygame.draw.line(self.pantalla, (55, 60, 70), (x0 + 20, sep_y), (x0 + 230, sep_y), 2)
         
-        self.pantalla.blit(self.fuente_chica.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
+        self.pantalla.blit(self.fuente_chica_bold.render("MEJOR MOVIMIENTO", True, COLOR_SUBTIT), (x0 + 20, sep_y + 15))
 
         def dibujar_sugerencia(y, titulo, datos_sug, color_acento):
             caja = pygame.Rect(x0 + 20, y, 210, 60)
@@ -124,14 +148,43 @@ class LiveBoard:
             # Renderizado seguro
             if texto_mostrar:
                 txt_render = self.fuente.render(texto_mostrar, True, (220, 220, 220))
-            else:
+            elif self.resultado_final is None:
                 txt_render = self.fuente_chica.render("analizando...", True, (100, 105, 115))
+            else:
+                txt_render = self.fuente_chica.render("", True, (0, 0, 0))
 
             self.pantalla.blit(txt_render, (caja.x + 15, caja.y + 28))
 
         sug = self.sugerencias
         dibujar_sugerencia(sep_y + 45, "BLANCAS", sug.get('blancas'), COLOR_BLANCAS)
         dibujar_sugerencia(sep_y + 115, "NEGRAS",  sug.get('negras'),  COLOR_NEGRAS)
+
+
+        # ── Botones de Navegación (Modo Visor) ─────────────────────────────
+        # ── Botones de Navegación (Modo Visor) ─────────────────────────────
+        if self.modo_visor:
+            tamano_btn = 80
+            separacion = 20 # Espacio entre flechas
+            y_btn = self.ancho_tablero - 85 # Un poco más arriba para que respiren
+            
+            # Cálculo para centrar matemáticamente en el panel
+            ancho_total = (tamano_btn * 2) + separacion
+            margen_x = (self.ancho_panel - ancho_total) // 2
+            
+            self.rect_btn_atras = pygame.Rect(x0 + margen_x, y_btn, tamano_btn, tamano_btn)
+            self.rect_btn_adelante = pygame.Rect(x0 + margen_x + tamano_btn + separacion, y_btn, tamano_btn, tamano_btn)
+            
+            # Dibujar flecha atrás
+            if 'btn_atras' in self.assets:
+                self.pantalla.blit(self.assets['btn_atras'], self.rect_btn_atras)
+            else:
+                pygame.draw.rect(self.pantalla, (100, 100, 100), self.rect_btn_atras, border_radius=8)
+                
+            # Dibujar flecha adelante
+            if 'btn_adelante' in self.assets:
+                self.pantalla.blit(self.assets['btn_adelante'], self.rect_btn_adelante)
+            else:
+                pygame.draw.rect(self.pantalla, (100, 100, 100), self.rect_btn_adelante, border_radius=8)
 
     def _dibujar_resaltados(self):
         """Traduce el UCI ('e2e4') a coordenadas X,Y de la matriz y dibuja los rectángulos."""
@@ -156,7 +209,7 @@ class LiveBoard:
                 # Celda de destino
                 pygame.draw.rect(self.pantalla, color, (c2*t, r2*t, t, t), 4)
 
-    def actualizar(self, matriz):
+    def actualizar(self, matriz, eventos_externos=None):
         if not isinstance(matriz, np.ndarray):
             raise TypeError("Se esperaba un numpy.ndarray.")
         
@@ -166,13 +219,16 @@ class LiveBoard:
         dt = (ahora - self.ultimo_tick) / 1000.0  
         self.ultimo_tick = ahora
         
-        self.tiempos[self.turno] += dt
-        self._inferir_turno(matriz)
+        if self.resultado_final is None:
+            self.tiempos[self.turno] += dt
+            self._inferir_turno(matriz)
 
-        for evento in pygame.event.get():
+        eventos = eventos_externos if eventos_externos is not None else pygame.event.get()
+
+        for evento in eventos:
             if evento.type == pygame.QUIT:
                 self.corriendo = False
-                pygame.quit()
+                # pygame.quit()
                 return False
 
         self.pantalla.blit(self.assets['fondo'], (0, 0))
@@ -185,8 +241,24 @@ class LiveBoard:
         self._dibujar_resaltados()        
         self._dibujar_panel()
 
+        if self.resultado_final:
+            textos = {"1-0": "¡Ganan las Blancas!", "0-1": "¡Ganan las Negras!", "1/2-1/2": "¡Tablas!"}
+            texto_mostrar = textos.get(self.resultado_final, "Fin del juego")
+            
+            fondo = pygame.Surface((self.ancho_tablero, 100), pygame.SRCALPHA)
+            fondo.fill((0, 0, 0, 190))
+            self.pantalla.blit(fondo, (0, self.ancho_tablero // 2 - 50))
+            
+            txt_superficie = self.fuente_grande.render(texto_mostrar, True, (255, 255, 255))
+            rect = txt_superficie.get_rect(center=(self.ancho_tablero // 2, self.ancho_tablero // 2))
+            self.pantalla.blit(txt_superficie, rect)
+            
         pygame.display.flip()
         return True
+
+    def set_resultado(self, resultado):
+        """Activa el cartel de fin de juego."""
+        self.resultado_final = resultado
 
 # prueba para ver si funciona, las matrices son de prueba
 if __name__ == "__main__":

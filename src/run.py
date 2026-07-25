@@ -3,6 +3,7 @@ import numpy as np
 import chess
 import os
 import sys
+import json
 
 # python src/run.py
 
@@ -17,6 +18,8 @@ from detect_movements import obtener_celdas_cambiadas, inferir_movimiento, chess
 from parser_table import DetectorTablero
 from virtual_board import LiveBoard
 from stockfish_advisor import StockfishAdvisor
+from menu import iniciar_menu
+from viewer import visualizar_partida
 from data_logger import GameLogger
 
 
@@ -27,7 +30,7 @@ UMBRAL_PIEZA = 0.15  # 15% de área de celda alterada
 OFFSET_TABLERO = 70  # Ajuste para descartar bordes físicos
 
 
-def main():
+def iniciar_deteccion():
     cap = cv.VideoCapture(1 if VIVO else URL)
     if not cap.isOpened():
         print(f"Error: no se pudo abrir la cámara o el archivo.")
@@ -124,8 +127,15 @@ def main():
                 print(f"[+] Movimiento Legal Validado: {mov.uci()} ({san})")
                 logger.registrar(turno_antes, san, mov.uci(), sug_txt)
                 
-                if advisor is not None:
-                    advisor.analizar_async(board_logico)
+                if board_logico.is_game_over():
+                    resultado = board_logico.result()
+                    live_board.set_resultado(resultado)
+                    live_board.sugerencias = {'blancas': None, 'negras': None} 
+                    print(f"\n[*] PARTIDA FINALIZADA. Resultado: {resultado}")
+                else:
+                    if advisor is not None:
+                        advisor.analizar_async(board_logico)
+                
                 live_board.actualizar(chess_board_a_matriz(board_logico))
             else:
                 print("[-] Movimiento INVÁLIDO. Revisá el tablero físico.")
@@ -141,4 +151,5 @@ def main():
     cv.destroyAllWindows()
 
 if __name__ == '__main__':
-    main()
+    #iniciar_deteccion()
+    iniciar_menu(iniciar_deteccion, visualizar_partida)

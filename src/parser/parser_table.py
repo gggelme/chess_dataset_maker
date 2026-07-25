@@ -18,6 +18,10 @@ class DetectorTablero:
         self.offset = offset
         self.esquinas_referencia = None
         self.H = None
+
+        self.esquinas_suavizadas = None
+        self.alfa = 0.15          # Velocidad de adaptación del EMA (0.0 a 1.0)
+        self.zona_muerta = 3.0    # Umbral mínimo de movimiento en píxeles
         
     def update_frame(self, frame):
         self._imagen_bgr = frame.copy()
@@ -43,46 +47,63 @@ class DetectorTablero:
                     nuevas_ord = _sort_corners(nuevas)
                     prev_ord = _sort_corners(prev_corners)
                     
-                    # 1. Chequeo estricto por esquina individual
-                    max_movimiento = np.max(np.linalg.norm(nuevas_ord - prev_ord, axis=1))
+                    max_mov = np.max(np.linalg.norm(nuevas_ord - prev_ord, axis=1))
+                    variacion_area = abs(cv2.contourArea(nuevas_ord) - cv2.contourArea(prev_ord)) / cv2.contourArea(prev_ord)
                     
-                    # 2. Chequeo de variación de área del polígono
-                    area_nueva = cv2.contourArea(nuevas_ord)
-                    area_vieja = cv2.contourArea(prev_ord)
-                    variacion_area = abs(area_nueva - area_vieja) / area_vieja
-                    
-                    # Si una esquina salta o el área cambia más del 10%, es la mano
-                    if max_movimiento > umbral_diff or variacion_area > 0.10:
-                        self.esquinas = prev_corners
+                    # 1. Filtro de Oclusiones (manos)
+                    if max_mov > umbral_diff or variacion_area > 0.10:
+                        self.esquinas = prev_corners  # <-- Faltaba esta línea
                         return prev_corners
                         
-                self.esquinas = nuevas
-                return nuevas
+                    # 2. Zona Muerta (elimina el micro-ruido del sensor)
+                    if max_mov < self.zona_muerta:
+                        self.esquinas = prev_corners  # <-- Y esta también
+                        return prev_corners
+
+                # 3. Filtro EMA (suaviza transiciones válidas)
+                nuevas_ord = _sort_corners(nuevas)
+                if self.esquinas_suavizadas is None:
+                    self.esquinas_suavizadas = nuevas_ord
+                else:
+                    self.esquinas_suavizadas = (self.alfa * nuevas_ord) + ((1 - self.alfa) * self.esquinas_suavizadas)
+                
+                self.esquinas = self.esquinas_suavizadas
+                return self.esquinas
             
         raise ValueError("No se encontró tablero")
-
-    def _medir_brillo_abajo(self, pts):
-        """Mide la franja inferior del tablero para buscar las piezas blancas."""
-        lado = 400
-        dst = np.array([[0,0], [0,lado], [lado,lado], [lado,0]], dtype=np.float32)
-        H = cv2.getPerspectiveTransform(pts, dst)
-        tmp = cv2.warpPerspective(self._imagen_hsv[:,:,2], H, (lado, lado))
-        # Evaluamos el brillo del 25% inferior del tablero
-        return np.mean(tmp[int(lado * 0.75):, :]) 
 
     def standardize_orientation(self):
         pts_ordenados = _sort_corners(self.esquinas)
         
         if self.esquinas_referencia is None:
-            mejor_roll, max_brillo = 0, -1
-            for i in range(4):
-                pts_prueba = np.roll(pts_ordenados, i, axis=0)
-                brillo = self._medir_brillo_abajo(pts_prueba)
-                if brillo > max_brillo:
-                    max_brillo, mejor_roll = brillo, i
+            # 1. Hacemos UN SOLO warp crudo para analizar la luz
+            lado = 400
+            dst = np.array([[0,0], [0,lado], [lado,lado], [lado,0]], dtype=np.float32)
+            H = cv2.getPerspectiveTransform(pts_ordenados, dst)
+            warp = cv2.warpPerspective(self._imagen_hsv[:,:,2], H, (lado, lado))
+            
+            # 2. Medimos el brillo del 25% de cada extremo
+            b = int(lado * 0.25)
+            e_sup = np.mean(warp[:b, :])
+            e_inf = np.mean(warp[-b:, :])
+            e_izq = np.mean(warp[:, :b])
+            e_der = np.mean(warp[:, -b:])
+            
+            # 3. Comparamos energías para decidir la rotación exacta
+            diff_filas = abs(e_sup - e_inf)
+            diff_cols = abs(e_izq - e_der)
+            
+            if diff_cols > diff_filas:
+                # Las piezas están a los lados -> rotar 90° o 270°
+                mejor_roll = 1 if e_izq > e_der else 3
+            else:
+                # Las piezas están arriba/abajo -> rotar 180° o dejar en 0°
+                mejor_roll = 2 if e_sup > e_inf else 0
+                
             self.esquinas_referencia = np.roll(pts_ordenados, mejor_roll, axis=0)
             self._pts_origen_orientados = self.esquinas_referencia.copy()
         else:
+            # Lógica original para tracking (frames posteriores)
             mejor_roll, mejor_dist = 0, float('inf')
             for i in range(4):
                 pts_prueba = np.roll(pts_ordenados, i, axis=0)
