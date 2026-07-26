@@ -35,7 +35,7 @@ def iniciar_deteccion():
         cap.set(cv.CAP_PROP_AUTOFOCUS, 0)
         cap.set(cv.CAP_PROP_AUTO_EXPOSURE, 0.25)
 
-    offset_elegido = configurar_offset(cap, 0)
+    offset_elegido = configurar_offset(cap, offset_inicial=0)
 
     if not VIVO:
         cap.set(cv.CAP_PROP_POS_FRAMES, 0)

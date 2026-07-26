@@ -153,7 +153,7 @@ class DetectorTablero:
         paso = self.LADO_DESTINO // 8
         return [int(i * paso) for i in range(9)]
 
-def configurar_offset(cap, offset_inicial=70):
+def configurar_offset(cap, offset_inicial=0):
     """
     Abre una ventana para ajustar el offset sobre el primer frame válido con tablero.
     Presiona ENTER o ESPACIO para confirmar el valor.
@@ -227,7 +227,9 @@ def configurar_offset(cap, offset_inicial=70):
 
 if __name__ == "__main__":
     cap = cv2.VideoCapture(1)
-    parser = DetectorTablero(offset=70)
+    offset_elegido = configurar_offset(cap, offset_inicial=0)
+
+    parser = DetectorTablero(offset=offset_elegido)
     prev_corners = None
     
     while cap.isOpened():
