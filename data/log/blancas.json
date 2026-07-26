@@ -1,17 +1,4 @@
 {
   "jugador": "blancas",
-  "movimientos": [
-    {
-      "numero": 1,
-      "jugada": "a4",
-      "uci": "a2a4",
-      "recomendado": null
-    },
-    {
-      "numero": 2,
-      "jugada": "Nc3",
-      "uci": "b1c3",
-      "recomendado": "e4  +59"
-    }
-  ]
+  "movimientos": []
 }

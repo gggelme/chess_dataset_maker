@@ -42,7 +42,7 @@ def iniciar_deteccion():
 
     # Inicializamos los nuevos módulos de visión
     parser = DetectorTablero(offset=offset_elegido)
-    detector_mov = DetectorMovimiento(umbral_energia=11.0, frames_estabilidad=15)
+    detector_mov = DetectorMovimiento(umbral_energia=9.0, frames_estabilidad=15)
     prev_corners = None
 
     # Inicialización de UI y Datos (usando el board de la clase)
@@ -67,6 +67,34 @@ def iniciar_deteccion():
                 live_board.sugerencias = advisor.get_sugerencias()
             if not live_board.actualizar(chess_board_a_matriz(detector_mov.board_logico)): break
 
+            if live_board.movimiento_manual:
+                mov_uci = live_board.movimiento_manual
+                live_board.movimiento_manual = None
+                
+                try:
+                    mov = chess.Move.from_uci(mov_uci)
+                    board = detector_mov.board_logico
+                    pieza_origen = board.piece_at(mov.from_square)
+                    
+                    # Verificamos si el color de la pieza seleccionada coincide con el turno lógico
+                    if pieza_origen and pieza_origen.color == board.turn:
+                        # Movimiento normal (no deshace nada)
+                        if mov in board.legal_moves:
+                            board.push(mov)
+                            print(f"\n[!] Movimiento manual aplicado: {mov_uci}")
+                    else:
+                        # Corrección: deshace el movimiento falso anterior
+                        ultimo_mov = board.pop() if board.move_stack else None
+                        if mov in board.legal_moves:
+                            board.push(mov)
+                            print(f"\n[!] Corrección aplicada: {mov_uci} (movimiento falso deshecho)")
+                        else:
+                            if ultimo_mov: 
+                                board.push(ultimo_mov) 
+                            print(f"\n[!] Movimiento manual ilegal ignorado.")
+                except Exception:
+                    pass
+
         # 2. Extracción del ROI
         parser.update_frame(frame)
         try:
@@ -74,7 +102,7 @@ def iniciar_deteccion():
             tablero_bgr = parser.get_board_roi()
         except ValueError:
             cv.imshow("Chess Vision", cv.resize(frame, (0, 0), fx=0.5, fy=0.5))
-            if cv.waitKey(30) & 0xFF == 27: break
+            if cv.waitKey(15) & 0xFF == 27: break
             continue
 
         # 3. Detección automática de movimientos

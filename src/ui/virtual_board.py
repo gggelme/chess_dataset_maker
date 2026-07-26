@@ -57,6 +57,9 @@ class LiveBoard:
         self.rect_btn_atras = pygame.Rect(0, 0, 0, 0)
         self.rect_btn_adelante = pygame.Rect(0, 0, 0, 0)
 
+        self.casilla_seleccionada = None
+        self.movimiento_manual = None
+
 
     def _inferir_turno(self, matriz_nueva):
         """Infiere el turno viendo qué pieza desapareció de su origen."""
@@ -231,6 +234,21 @@ class LiveBoard:
                 # pygame.quit()
                 return False
 
+            if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                x, y = evento.pos
+                if x < self.ancho_tablero:  # Asegurar que el clic es dentro del tablero
+                    c, f = x // self.tamano_celda, y // self.tamano_celda
+                    if self.casilla_seleccionada:
+                        # Segundo clic: Destino
+                        c_orig, f_orig = self.casilla_seleccionada
+                        columnas = "abcdefgh"
+                        mov_uci = f"{columnas[c_orig]}{8 - f_orig}{columnas[c]}{8 - f}"
+                        self.movimiento_manual = mov_uci
+                        self.casilla_seleccionada = None
+                    elif matriz[f, c] != 0:
+                        # Primer clic: Seleccionar pieza (solo si la celda no está vacía)
+                        self.casilla_seleccionada = (c, f)
+
         self.pantalla.blit(self.assets['fondo'], (0, 0))
         
         filas, cols = np.nonzero(matriz)
@@ -238,6 +256,10 @@ class LiveBoard:
             pieza = matriz[f, c]
             self.pantalla.blit(self.assets[pieza], (c * self.tamano_celda, f * self.tamano_celda))
 
+        if self.casilla_seleccionada:
+            c, f = self.casilla_seleccionada
+            pygame.draw.rect(self.pantalla, (0, 255, 0), (c * self.tamano_celda, f * self.tamano_celda, self.tamano_celda, self.tamano_celda), 4)
+            
         self._dibujar_resaltados()        
         self._dibujar_panel()
 
