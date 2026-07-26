@@ -6,6 +6,7 @@ from pygame_menu.baseimage import BaseImage
 def iniciar_menu(funcion_detectar, funcion_visualizar):
     pygame.init()
     pantalla = pygame.display.set_mode((800, 600))
+    pygame.display.set_caption("ChessTracker")
 
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
     directorio_raiz = os.path.abspath(os.path.join(directorio_actual, "..", ".."))
@@ -45,7 +46,7 @@ def iniciar_menu(funcion_detectar, funcion_visualizar):
 
     # --- TÍTULO ---
     # Forzamos la fuente Bold y el color crema (#f5e9d9)
-    titulo = menu.add.label('AJEDREZ IA', font_name=ruta_fuente_bold, font_size=60, font_color=(245, 233, 217))
+    titulo = menu.add.label('ChessTracker', font_name=ruta_fuente_bold, font_size=60, font_color=(245, 233, 217))
     
     # Eliminamos el fondo y aseguramos que no tenga borde heredado del tema
     titulo.set_background_color((0, 0, 0, 0))

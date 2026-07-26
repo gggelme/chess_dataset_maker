@@ -7,13 +7,13 @@ import json
 from virtual_board import LiveBoard
 from stockfish_advisor import StockfishAdvisor
 
-ruta_archivo = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'parser', 'detect_movements.py'))
-spec = importlib.util.spec_from_file_location("detect_movements", ruta_archivo)
-detect_movements = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(detect_movements)
+ruta_archivo = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'parser', 'movement_detection.py'))
+spec = importlib.util.spec_from_file_location("movement_detection", ruta_archivo)
+movement_detection = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(movement_detection)
 
 # Asignas la función para usarla normal en tu código
-chess_board_a_matriz = detect_movements.chess_board_a_matriz
+chess_board_a_matriz = movement_detection.chess_board_a_matriz
 
 def visualizar_partida():
     ruta_json = os.path.join(os.path.dirname(__file__), "..", "..", "data", "log", "partida.json")
@@ -46,6 +46,7 @@ def visualizar_partida():
     # 2. Iniciar visor
     tablero = LiveBoard()
     tablero.modo_visor = True  # Desactiva el reloj
+    pygame.display.set_caption("Visualización")
     
     indice = 0
     indice_previo = -1
