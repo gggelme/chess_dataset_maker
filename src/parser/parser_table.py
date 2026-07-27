@@ -45,38 +45,38 @@ class DetectorTablero:
             approx = cv2.approxPolyDP(hull, 0.04 * cv2.arcLength(hull, True), True)
             
             if len(approx) == 4:
-                nuevas = approx.reshape(4, 2).astype(np.float32)
+                nuevas_ord = _sort_corners(approx)
                 
                 if prev_corners is not None:
-                    nuevas_ord = _sort_corners(nuevas)
                     prev_ord = _sort_corners(prev_corners)
                     
+                    # 1. Distancia máxima que se movió cualquier esquina
                     max_mov = np.max(np.linalg.norm(nuevas_ord - prev_ord, axis=1))
-                    variacion_area = abs(cv2.contourArea(nuevas_ord) - cv2.contourArea(prev_ord)) / cv2.contourArea(prev_ord)
                     
-                    # 1. Filtro de Oclusiones (salto brusco o deformación de área por manos)
-                    if max_mov > umbral_diff or variacion_area > 0.10:
+                    # 2. Filtro de Oclusiones
+                    if max_mov > umbral_diff:
                         self.paciencia_oclusion += 1
-                        
-                        # AUMENTAMOS LA PACIENCIA: 60 frames (~2 segundos)
-                        # Tiempo realista para mover una pieza y sacar la mano.
                         if self.paciencia_oclusion > 60:
                             self.reset()
                             return None
-                            
                         self.esquinas = prev_corners 
                         return prev_corners
                         
-                    # 2. Si llegamos acá, el movimiento físico del tablero es real y válido
                     self.paciencia_oclusion = 0
                         
-                    # 3. Zona Muerta (elimina el micro-ruido del sensor)
-                    if max_mov < self.zona_muerta:
+                    # 3. ESTABILIZACIÓN PROPORCIONAL
+                    # Distancia entre la esquina 0 y la 2 (la diagonal cruzada del tablero)
+                    diagonal = np.linalg.norm(prev_ord[0] - prev_ord[2])
+                    
+                    # Definimos el límite como un 5% de la diagonal
+                    tolerancia_dinamica = 0.05 * diagonal
+                    
+                    # Si el movimiento no supera el % de la diagonal, lo ignoramos
+                    if max_mov < tolerancia_dinamica:
                         self.esquinas = prev_corners
                         return prev_corners
 
-                # 3. Filtro EMA (suaviza transiciones válidas)
-                nuevas_ord = _sort_corners(nuevas)
+                # 4. Filtro EMA
                 if self.esquinas_suavizadas is None:
                     self.esquinas_suavizadas = nuevas_ord
                 else:
@@ -155,72 +155,80 @@ class DetectorTablero:
 
 def configurar_offset(cap, offset_inicial=0):
     """
-    Abre una ventana para ajustar el offset sobre el primer frame válido con tablero.
-    Presiona ENTER o ESPACIO para confirmar el valor.
+    Ajusta el offset. Presiona ENTER para confirmar o 'r' para buscar el tablero de nuevo.
     """
-    ventana = "Ajuste de Offset (ENTER para confirmar)"
+    ventana = "Ajuste de Offset (ENTER: confirmar | R: re-detectar)"
     cv2.namedWindow(ventana, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(ventana, 500, 500)
-    
     cv2.createTrackbar("Offset", ventana, offset_inicial, 150, lambda x: None)
     
     parser_temp = DetectorTablero(offset=offset_inicial)
     prev_corners = None
     frame_congelado = None
+    offset_final = offset_inicial
     
-    # 1. Bucle de búsqueda: leemos frames hasta encontrar el tablero
-    while True:
-        ret, frame = cap.read()
-        if not ret: 
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Si es video y termina, rebobina
-            continue
-            
-        parser_temp.update_frame(frame)
-        try:
-            prev_corners = parser_temp.detect_board_corners(prev_corners)
-            if prev_corners is not None:
-                frame_congelado = frame.copy()
-                break # ¡Tablero encontrado! Rompemos el bucle
-        except ValueError:
-            prev_corners = None
-            
-        # Mostramos lo que ve la cámara mientras busca
-        cv2.imshow(ventana, frame)
-        if cv2.waitKey(1) & 0xFF == 27: # ESC por si se traba y queremos salir
-            cv2.destroyWindow(ventana)
-            return offset_inicial
+    while True: # Bucle principal para permitir re-intentos
+        # 1. Bucle de búsqueda en vivo
+        while True:
+            ret, frame = cap.read()
+            if not ret: 
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                continue
+                
+            parser_temp.update_frame(frame)
+            try:
+                # Forzamos detección limpia pasando None temporalmente si venimos de un reset
+                prev_corners = parser_temp.detect_board_corners(None if prev_corners is None else prev_corners)
+                if prev_corners is not None:
+                    frame_congelado = frame.copy()
+                    break # Tablero encontrado
+            except ValueError:
+                prev_corners = None
+                
+            cv2.imshow(ventana, frame)
+            if cv2.waitKey(1) & 0xFF == 27: # ESC
+                cv2.destroyWindow(ventana)
+                return offset_inicial
 
-    print("\n[!] Tablero detectado. Ajusta la grilla verde y presiona ENTER.")
-    
-    # 2. Bucle estático: calibramos sobre el frame_congelado
-    while True:
-        offset_final = cv2.getTrackbarPos("Offset", ventana)
-        parser_temp.offset = offset_final
+        print("\n[!] Tablero detectado. Ajusta la grilla. ENTER: confirmar | R: re-detectar.")
         
-        parser_temp.update_frame(frame_congelado)
-        
-        try:
-            prev_corners = parser_temp.detect_board_corners(prev_corners)
-            if prev_corners is not None:
-                roi = parser_temp.get_board_roi()
-                
-                # Dibujamos la cuadrícula matemática en verde
-                lado = parser_temp.LADO_DESTINO
-                pasos = parser_temp.get_math_grid()
-                for p in pasos:
-                    cv2.line(roi, (0, p), (lado, p), (0, 255, 0), 2)
-                    cv2.line(roi, (p, 0), (p, lado), (0, 255, 0), 2)
-                
-                cv2.imshow(ventana, roi)
-            else:
-                cv2.imshow(ventana, frame_congelado)
-        except ValueError:
-            prev_corners = None
-            cv2.imshow(ventana, frame_congelado)
+        # 2. Bucle estático sobre el frame congelado
+        confirmado = False
+        while True:
+            offset_final = cv2.getTrackbarPos("Offset", ventana)
+            parser_temp.offset = offset_final
+            parser_temp.update_frame(frame_congelado)
             
-        key = cv2.waitKey(30) & 0xFF
-        if key in [13, 32]: # ENTER o ESPACIO
-            break
+            try:
+                # Usamos los corners ya detectados para que la vista sea estable
+                corners = parser_temp.detect_board_corners(prev_corners)
+                if corners is not None:
+                    roi = parser_temp.get_board_roi()
+                    lado = parser_temp.LADO_DESTINO
+                    
+                    # Dibujar grilla
+                    for p in parser_temp.get_math_grid():
+                        cv2.line(roi, (0, p), (lado, p), (0, 255, 0), 2)
+                        cv2.line(roi, (p, 0), (p, lado), (0, 255, 0), 2)
+                    
+                    cv2.imshow(ventana, roi)
+                else:
+                    cv2.imshow(ventana, frame_congelado)
+            except ValueError:
+                cv2.imshow(ventana, frame_congelado)
+                
+            key = cv2.waitKey(30) & 0xFF
+            if key in [13, 32]: # ENTER o ESPACIO
+                confirmado = True
+                break
+            elif key == ord('r') or key == ord('R'): # Tecla 'r' para re-detectar
+                print("[!] Descartando captura. Buscando nuevamente...")
+                parser_temp.reset()
+                prev_corners = None
+                break # Rompe el bucle estático y vuelve al bucle de búsqueda en vivo
+                
+        if confirmado:
+            break # Sale del bucle principal
             
     cv2.destroyWindow(ventana)
     return offset_final
